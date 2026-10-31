@@ -29,7 +29,7 @@ fi
 
 sed -i "s/^versionName=.*/versionName=$version/" version.properties
 sed -i "0,/^## \[Unreleased\]/s//## [Unreleased]\n\n## [$version] - $(date +%F)/" CHANGELOG.md
-git commit -am "Release $version"
+git commit -am "Release $version" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 git tag -a "v$version" -m "Leatherbound Listening $version"
 git push origin HEAD "v$version"
 echo "Pushed v$version. GitHub is building the APK: $(gh repo view --json url -q .url 2>/dev/null)/actions"
