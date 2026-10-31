@@ -99,58 +99,35 @@ fun LibraryScreen(vm: AppViewModel, nav: Navigator) {
     var genreFilter by remember { mutableStateOf(false) }
     if (genreFilter) GenreFilterDialog(allGenres, settings.hiddenGenres, vm::setHiddenGenres) { genreFilter = false }
 
-    // Scrolling down tucks away everything above the search bar; scrolling up brings it back.
+    // Scrolling down tucks away the chips under the search bar; scrolling up brings them back.
     val header = rememberCollapsingHeaderState()
     LaunchedEffect(view, settings.librarySort, filter) { header.expand() }
 
     Column(Modifier.fillMaxSize().paper().statusBarsPadding().nestedScroll(header.connection)) {
-        CollapsingHeader(header) {
-            Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Library", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
-                if (showingBooks) Box {
-                    IconButton(onClick = { sortMenu = true }) { Icon(Icons.AutoMirrored.Filled.Sort, "Sort") }
-                    DropdownMenu(sortMenu, onDismissRequest = { sortMenu = false }) {
-                        LibrarySort.entries.forEach { sort ->
-                            DropdownMenuItem(
-                                text = { Text(sort.label) },
-                                trailingIcon = {
-                                    if (sort == settings.librarySort) Icon(if (settings.sortDescending) Icons.Filled.ArrowUpward else Icons.Filled.ArrowDownward, null)
-                                },
-                                onClick = { vm.setSort(sort); sortMenu = false },
-                            )
-                        }
+        Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Library", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
+            if (showingBooks) Box {
+                IconButton(onClick = { sortMenu = true }) { Icon(Icons.AutoMirrored.Filled.Sort, "Sort") }
+                DropdownMenu(sortMenu, onDismissRequest = { sortMenu = false }) {
+                    LibrarySort.entries.forEach { sort ->
+                        DropdownMenuItem(
+                            text = { Text(sort.label) },
+                            trailingIcon = {
+                                if (sort == settings.librarySort) Icon(if (settings.sortDescending) Icons.Filled.ArrowUpward else Icons.Filled.ArrowDownward, null)
+                            },
+                            onClick = { vm.setSort(sort); sortMenu = false },
+                        )
                     }
                 }
-                if (showingBooks && settings.librarySort == LibrarySort.GENRE) IconButton(onClick = { genreFilter = true }) {
-                    BadgedBox(badge = { if (settings.hiddenGenres.isNotEmpty()) Badge() }) { Icon(Icons.Filled.FilterList, "Choose genres") }
-                }
-                if (showingBooks && settings.librarySort != LibrarySort.GENRE) IconButton(onClick = { vm.setGrid(!settings.libraryGrid) }) {
-                    Icon(if (settings.libraryGrid) Icons.AutoMirrored.Filled.ViewList else Icons.Filled.GridView, "Change layout")
-                }
-                if (syncing) CircularProgressIndicator(Modifier.padding(12.dp).size(24.dp), strokeWidth = 2.dp)
-                else IconButton(onClick = { vm.sync() }) { Icon(Icons.Filled.Refresh, "Sync libraries") }
             }
-
-            if (showingBooks) Text(
-                (if (settings.librarySort == LibrarySort.GENRE) "${genreGroups.size} ${if (genreGroups.size == 1) "genre" else "genres"} · ${books.size} volumes"
-                else "${books.size} ${if (books.size == 1) "volume" else "volumes"} · sorted by ${settings.librarySort.label.lowercase()}") +
-                    if (matching.isNotEmpty()) " · ${matching.size} ${if (matching.size == 1) "collection" else "collections"}" else "",
-                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 20.dp),
-            )
-
-            Spacer(Modifier.height(6.dp))
-            Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(selected = showingBooks, onClick = { vm.libraryView.value = LibraryView.BOOKS }, label = { Text("Books") },
-                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.MenuBook, null, Modifier.size(18.dp)) })
-                FilterChip(selected = !showingBooks, onClick = { vm.libraryView.value = LibraryView.COLLECTIONS }, label = { Text("Collections (${collections.size})") },
-                    leadingIcon = { Icon(Icons.Filled.CollectionsBookmark, null, Modifier.size(18.dp)) })
+            if (showingBooks && settings.librarySort == LibrarySort.GENRE) IconButton(onClick = { genreFilter = true }) {
+                BadgedBox(badge = { if (settings.hiddenGenres.isNotEmpty()) Badge() }) { Icon(Icons.Filled.FilterList, "Choose genres") }
             }
-            if (showingBooks) LazyRow(Modifier.padding(top = 4.dp), contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(LibraryFilter.entries) { f ->
-                    FilterChip(selected = f == filter, onClick = { vm.filter.value = f }, label = { Text(f.label) })
-                }
+            if (showingBooks && settings.librarySort != LibrarySort.GENRE) IconButton(onClick = { vm.setGrid(!settings.libraryGrid) }) {
+                Icon(if (settings.libraryGrid) Icons.AutoMirrored.Filled.ViewList else Icons.Filled.GridView, "Change layout")
             }
+            if (syncing) CircularProgressIndicator(Modifier.padding(12.dp).size(24.dp), strokeWidth = 2.dp)
+            else IconButton(onClick = { vm.sync() }) { Icon(Icons.Filled.Refresh, "Sync libraries") }
         }
         OutlinedTextField(
             value = query,
@@ -163,6 +140,26 @@ fun LibraryScreen(vm: AppViewModel, nav: Navigator) {
             colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant),
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
         )
+        CollapsingHeader(header) {
+            Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = showingBooks, onClick = { vm.libraryView.value = LibraryView.BOOKS }, label = { Text("Books") },
+                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.MenuBook, null, Modifier.size(18.dp)) })
+                FilterChip(selected = !showingBooks, onClick = { vm.libraryView.value = LibraryView.COLLECTIONS }, label = { Text("Collections (${collections.size})") },
+                    leadingIcon = { Icon(Icons.Filled.CollectionsBookmark, null, Modifier.size(18.dp)) })
+            }
+            if (showingBooks) LazyRow(Modifier.padding(top = 2.dp), contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(LibraryFilter.entries) { f ->
+                    FilterChip(selected = f == filter, onClick = { vm.filter.value = f }, label = { Text(f.label) })
+                }
+            }
+            if (showingBooks) Text(
+                (if (settings.librarySort == LibrarySort.GENRE) "${genreGroups.size} ${if (genreGroups.size == 1) "genre" else "genres"} · ${books.size} volumes"
+                else "${books.size} ${if (books.size == 1) "volume" else "volumes"} · sorted by ${settings.librarySort.label.lowercase()}") +
+                    if (matching.isNotEmpty()) " · ${matching.size} ${if (matching.size == 1) "collection" else "collections"}" else "",
+                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
+            )
+        }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 20.dp)) }
         if (!showingBooks) {
             CollectionsGrid(if (query.isBlank()) collections else matching, query, nav)

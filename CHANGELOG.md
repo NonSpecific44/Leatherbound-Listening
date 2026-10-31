@@ -5,6 +5,12 @@ All notable changes to Leatherbound Listening. Add new entries under **Unrelease
 
 ## [Unreleased]
 
+### Added
+- Plex switches between home and away automatically: when the phone changes network (Wi-Fi to mobile data or back), each server's best address is picked again, so it streams over your home network when you're on it and over the internet when you're not. A book that's playing moves to the new address without losing its place, and a stream that drops is retried once on the server's current address before showing an error
+
+### Changed
+- Library: the title bar and search bar now stay put. Below them are the Books/Collections chips, the status chips and the volume count, and only those hide when you scroll down
+
 ## [2.1.1] - 2026-10-31
 
 ### Changed

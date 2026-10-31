@@ -42,6 +42,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.guava.future
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -116,7 +119,37 @@ class PlaybackService : MediaLibraryService() {
             }
         }
         scope.launch { tick() }
+        // When a Plex server moves to another address (you left home or came back), switch the
+        // book that's streaming over to it without losing your place.
+        scope.launch {
+            dao.observeSources().map { list -> list.associate { it.id to it.baseUrl } }
+                .distinctUntilChanged().drop(1).collect { restream(force = false) }
+        }
     }
+
+    /**
+     * Reloads the current book's streams from its server's current address, keeping the position
+     * and whether it was playing. Without [force], only does so if the address has changed.
+     * Returns false if there was nothing to reload (a downloaded or local book).
+     */
+    private suspend fun restream(force: Boolean): Boolean {
+        val bookId = player.currentBookId ?: return false
+        val uri = player.currentMediaItem?.localConfiguration?.uri ?: return false
+        if (uri.scheme != "http" && uri.scheme != "https") return false
+        val book = dao.book(bookId) ?: return false
+        val source = dao.source(book.sourceId) ?: return false
+        if (!force && uri.toString().startsWith(source.baseUrl)) return true
+        val tracks = dao.tracks(bookId)
+        val (index, offset) = tracks.locate(player.bookPositionMs)
+        val resume = player.playWhenReady
+        player.skipNextRewind = true
+        player.setMediaItems(trackItems(book, tracks, repository.tokenFor(book.sourceId)), index, offset)
+        player.prepare()
+        if (resume) player.play()
+        return true
+    }
+
+    private var lastRetryAt = 0L
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession = session
 
@@ -269,6 +302,21 @@ class PlaybackService : MediaLibraryService() {
 
         override fun onPlayerError(error: PlaybackException) {
             val offline = !container.network.online.value
+            // A stream that drops (usually the old address after you leave home): find the server's
+            // current address and carry on from the same spot. Once only, so a dead server can't loop.
+            val now = SystemClock.elapsedRealtime()
+            if (!offline && now - lastRetryAt > 30_000) {
+                lastRetryAt = now
+                scope.launch {
+                    runCatching { repository.refreshConnections() }
+                    if (!restream(force = true)) showError(error, offline)
+                }
+                return
+            }
+            showError(error, offline)
+        }
+
+        private fun showError(error: PlaybackException, offline: Boolean) {
             Toast.makeText(
                 this@PlaybackService,
                 if (offline) "You're offline, and this book isn't downloaded" else "Couldn't play: ${error.errorCodeName}",

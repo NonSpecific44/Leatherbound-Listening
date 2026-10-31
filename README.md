@@ -22,6 +22,7 @@ A self-made audiobook player for Plex and Jellyfin, with a bound-book look: parc
 | **Bookmarks** | From the player (with an optional note) or the notification. Listed on the book page and in the player. |
 | **Sound** | Speed per book, with a default in Settings. Optional skip silence and voice boost. |
 | **Progress sync** | Your position is sent to Plex/Jellyfin (at most once a minute while playing, and on every pause) and pulled back on launch. The newest position wins. |
+| **Home and away** | Plex uses your home network when you're on it and the internet when you're out, re-checking whenever the phone changes network, even mid-book. |
 | **Downloads** | Download the next book automatically, delete finished books' downloads, and a Downloads page showing storage used. |
 | **Offline** | Books that can't play without a connection are dimmed, and their play button says why. |
 | **Browse** | Author and series pages. Tap the name on a book's page. |
@@ -42,7 +43,7 @@ A self-made audiobook player for Plex and Jellyfin, with a bound-book look: parc
 | Player cover | Long-press | Add a bookmark |
 | Mini player | Swipe up (or tap) | Open the player |
 | Resume, Library | Pull down | Sync with your servers |
-| Library | Scroll down / up | Hide / show everything above the search bar |
+| Library | Scroll down / up | Hide / show the chips under the search bar |
 | Up Next | Swipe a book left | Remove it from the list |
 | Up Next, Customise Home | Drag the ≡ grip | Reorder |
 | Any book cover or row | Long-press | Quick menu: play, Up Next, mark finished or unread, download |
