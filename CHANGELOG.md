@@ -5,6 +5,8 @@ All notable changes to Leatherbound Listening. Add new entries under **Unrelease
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-11-01
+
 ### Added
 - Update check: add a read-only GitHub token in Settings → Updates and the app checks for a new release when you open it, shows what's new, and installs it
 - Changes made offline reach your server later: positions, finished and unread marks that can't be sent are queued and sent when you're back online. Settings shows how many are waiting
