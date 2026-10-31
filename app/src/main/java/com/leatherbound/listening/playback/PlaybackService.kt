@@ -454,7 +454,7 @@ class PlaybackService : MediaLibraryService() {
 
     private suspend fun children(parentId: String): List<MediaItem> = when (parentId) {
         MediaIds.ROOT -> listOf(
-            folderItem(MediaIds.CONTINUE, "Continue"),
+            folderItem(MediaIds.CONTINUE, "Jump back in"),
             folderItem(MediaIds.LIST, "Listening list"),
             folderItem(MediaIds.LIBRARY, "Library"),
             folderItem(MediaIds.DOWNLOADED, "Downloaded"),

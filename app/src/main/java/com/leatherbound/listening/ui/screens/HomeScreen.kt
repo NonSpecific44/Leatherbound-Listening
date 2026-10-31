@@ -25,6 +25,21 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.IconButton
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import com.leatherbound.listening.data.HomeLayout
+import com.leatherbound.listening.data.HomeSection
+import com.leatherbound.listening.ui.components.DragGrip
+import com.leatherbound.listening.ui.components.reorderableItem
+import com.leatherbound.listening.ui.components.rememberReorderState
 import androidx.compose.material3.TextButton
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyRow
@@ -84,13 +99,22 @@ fun HomeScreen(vm: AppViewModel, nav: Navigator) {
         }
     }
 
+    val onDevice = remember(books) {
+        books.filter { it.downloadState == com.leatherbound.listening.data.db.DownloadState.DONE }.sortedByDescending { it.lastPlayedAt }
+    }
+    var customise by remember { mutableStateOf(false) }
+    if (customise) CustomiseHomeSheet(settings.homeLayout, onSave = vm::setHomeLayout, onDismiss = { customise = false })
+
     val syncing by vm.syncing.collectAsStateWithLifecycle()
     // Pull down to sync with your servers.
     PullToRefreshBox(isRefreshing = syncing, onRefresh = { vm.sync() }, modifier = Modifier.fillMaxSize().paper().statusBarsPadding()) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         val greeting = when (LocalTime.now().hour) { in 5..11 -> "Good morning"; in 12..17 -> "Good afternoon"; else -> "Good evening" }
         val name = settings.displayName
-        Text(if (name.isBlank()) greeting else "$greeting, $name", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(start = 20.dp, top = 20.dp))
+        Row(Modifier.fillMaxWidth().padding(start = 20.dp, top = 20.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(if (name.isBlank()) greeting else "$greeting, $name", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
+            IconButton(onClick = { customise = true }) { Icon(Icons.Filled.Tune, "Customise Home") }
+        }
         Text("Where were we?", style = MaterialTheme.typography.bodyLarge, fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp))
         Spacer(Modifier.height(10.dp))
         ServerStatusRow(sources, serverStatus, onRefresh = { vm.checkServers() })
@@ -119,19 +143,25 @@ fun HomeScreen(vm: AppViewModel, nav: Navigator) {
         }
 
         Spacer(Modifier.height(8.dp))
-        Shelf("Continue listening", inProgress.filter { it.id != current?.id }, { nav.book(it.id) })
-        Shelf("Up next", list, { nav.book(it.id) })
-        if (collections.isNotEmpty()) {
-            Row(Modifier.fillMaxWidth().padding(end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Ornament("Collections", Modifier.weight(1f).padding(start = 16.dp, top = 8.dp, bottom = 8.dp))
-                TextButton(onClick = { vm.libraryView.value = LibraryView.COLLECTIONS; nav.libraryCollections() }) { Text("See all") }
+        // Shelves in the order (and visibility) chosen under Customise Home.
+        settings.homeLayout.visible.forEach { section ->
+            when (section) {
+                HomeSection.UP_NEXT -> Shelf(section.label, list, { nav.book(it.id) })
+                HomeSection.JUMP_BACK_IN -> Shelf(section.label, inProgress.filter { it.id != current?.id }, { nav.book(it.id) })
+                HomeSection.ON_DEVICE -> Shelf(section.label, onDevice, { nav.book(it.id) })
+                HomeSection.RECENTLY_ADDED -> Shelf(section.label, recent, { nav.book(it.id) })
+                HomeSection.COLLECTIONS -> if (collections.isNotEmpty()) {
+                    Row(Modifier.fillMaxWidth().padding(end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Ornament(section.label, Modifier.weight(1f).padding(start = 16.dp, top = 8.dp, bottom = 8.dp))
+                        TextButton(onClick = { vm.libraryView.value = LibraryView.COLLECTIONS; nav.libraryCollections() }) { Text("See all") }
+                    }
+                    LazyRow(contentPadding = PaddingValues(horizontal = 10.dp)) {
+                        items(collections.take(20), key = { it.collection.id }) { CollectionCard(it, { nav.collection(it.collection.id) }) }
+                    }
+                    ShelfBoard()
+                }
             }
-            LazyRow(contentPadding = PaddingValues(horizontal = 10.dp)) {
-                items(collections.take(20), key = { it.collection.id }) { CollectionCard(it, { nav.collection(it.collection.id) }) }
-            }
-            ShelfBoard()
         }
-        Shelf("Recently added", recent, { nav.book(it.id) })
         Spacer(Modifier.height(24.dp))
     }
     }
@@ -174,5 +204,60 @@ private fun ResumeCard(book: BookEntity, playing: Boolean, positionMs: Long, onR
                 }
             }
         }
+    }
+}
+
+/** Show, hide and drag to reorder the Home shelves. Saved as you go. */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun CustomiseHomeSheet(layout: HomeLayout, onSave: (HomeLayout) -> Unit, onDismiss: () -> Unit) {
+    var draft by remember { mutableStateOf(layout) }
+    val reorder = rememberReorderState(
+        onMove = { from, to ->
+            val order = draft.order.toMutableList()
+            val i = order.indexOfFirst { it.name == from }
+            val j = order.indexOfFirst { it.name == to }
+            if (i >= 0 && j >= 0) {
+                order.add(j, order.removeAt(i))
+                draft = draft.copy(order = order)
+            }
+        },
+        onDrop = { onSave(draft) },
+    )
+    // A dialog rather than a bottom sheet: a sheet would also move when you drag a shelf.
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surface, modifier = Modifier.padding(16.dp).widthIn(max = 560.dp).fillMaxWidth()) {
+    Column(Modifier.padding(top = 16.dp)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Customise Home", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
+            TextButton(onClick = { draft = HomeLayout.DEFAULT; onSave(draft) }) { Text("Reset") }
+            TextButton(onClick = onDismiss) { Text("Done") }
+        }
+        Text(
+            "Drag ≡ to reorder. Switch shelves off to hide them.",
+            style = MaterialTheme.typography.bodyMedium, fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+        )
+        LazyColumn(state = reorder.listState, contentPadding = PaddingValues(bottom = 16.dp)) {
+            items(draft.order, key = { it.name }) { section ->
+                val shown = section !in draft.hidden
+                Surface(color = MaterialTheme.colorScheme.surface, modifier = reorderableItem(reorder, section.name)) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        DragGrip(reorder, section.name)
+                        Spacer(Modifier.width(8.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(section.label, style = MaterialTheme.typography.titleMedium, color = if (shown) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(section.description, style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(checked = shown, onCheckedChange = { on ->
+                            draft = draft.copy(hidden = if (on) draft.hidden - section else draft.hidden + section)
+                            onSave(draft)
+                        })
+                    }
+                }
+            }
+        }
+    }
+    }
     }
 }

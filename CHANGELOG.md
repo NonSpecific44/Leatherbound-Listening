@@ -5,6 +5,24 @@ All notable changes to Leatherbound Listening. Add new entries under **Unrelease
 
 ## [Unreleased]
 
+### Added
+- Drag and drop to reorder Up Next (hold the ≡ grip). This replaces the up and down arrows
+- Customise Home (the sliders button next to the greeting): drag to reorder shelves and switch them on or off. Reset restores the default order
+- "On device" shelf on Home showing your downloaded books
+- Genre view: sorting the Library by genre shows a card per genre (like collections), each opening a page of its books. The filter button chooses which genres are shown
+
+### Changed
+- "Continue listening" is now "Jump back in", on Home and in Android Auto
+- Home shows Up next above Jump back in by default
+- Stats tiles are all the same size
+- The Library search box just says "Search"
+- Automatic downloads always take the next book in the series first. Up Next is only used when the series has nothing left
+- A book's series is now the smallest collection it's in, so a broad collection like "Favourites" is no longer mistaken for a series
+- Genres that differ only in capitalisation ("Fantasy", "fantasy") are merged
+
+### Fixed
+- Custom collection artwork from Plex (and Jellyfin) now shows on collection cards
+
 ## [2.0.0] - 2026-10-31
 
 ### Added

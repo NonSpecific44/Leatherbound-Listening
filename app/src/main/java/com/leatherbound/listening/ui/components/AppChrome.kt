@@ -55,7 +55,12 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import android.net.Uri
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.SubcomposeAsyncImage
 import com.leatherbound.listening.R
+import com.leatherbound.listening.data.ArtworkProvider
+import com.leatherbound.listening.data.db.BookEntity
 import com.leatherbound.listening.data.ServerStatus
 import com.leatherbound.listening.data.db.SourceEntity
 import com.leatherbound.listening.ui.CollectionView
@@ -155,34 +160,56 @@ fun ServerStatusRow(sources: List<SourceEntity>, status: Map<Long, ServerStatus>
 }
 
 
-/** A collection as a little stack: up to four covers in a gilt frame, with its name. */
+/** A collection: its own artwork from Plex/Jellyfin if it has one, otherwise a mosaic of its books. */
 @Composable
 fun CollectionCard(collection: CollectionView, onClick: () -> Unit, modifier: Modifier = Modifier, width: Dp = 150.dp) {
+    StackCard(collection.collection.name, collection.books, ArtworkProvider.uri(collection.collection), onClick, modifier, width)
+}
+
+/**
+ * A group of books as a little framed stack: [cover] if given (falling back to the mosaic if it
+ * won't load), else up to four covers. Used for collections and genres.
+ */
+@Composable
+fun StackCard(title: String, books: List<BookEntity>, cover: Uri?, onClick: () -> Unit, modifier: Modifier = Modifier, width: Dp = 150.dp) {
     // Dp.Unspecified fills the grid cell instead of a fixed width.
     Column(modifier.then(if (width != Dp.Unspecified) Modifier.width(width) else Modifier.fillMaxWidth()).clip(RoundedCornerShape(8.dp)).clickable(onClick = onClick).padding(6.dp)) {
         Box(
             Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(6.dp))
                 .background(Leather.Oxblood).giltFrame(inset = 4.dp, notch = 8.dp).padding(10.dp)
         ) {
-            val covers = collection.books.take(4)
-            if (covers.size < 4) {
-                BookCover(covers.first(), Modifier.fillMaxSize(), elevation = 4.dp)
-            } else {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    covers.chunked(2).forEach { row ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
-                            row.forEach { BookCover(it, Modifier.weight(1f), elevation = 2.dp) }
-                        }
-                    }
+            val mosaic: @Composable () -> Unit = { Mosaic(books) }
+            if (cover != null) {
+                SubcomposeAsyncImage(
+                    model = cover, contentDescription = title, contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(4.dp)),
+                    loading = { mosaic() }, error = { mosaic() },
+                )
+            } else mosaic()
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(
+            "${books.size} ${if (books.size == 1) "book" else "books"}",
+            style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun Mosaic(books: List<BookEntity>) {
+    val covers = books.take(4)
+    if (covers.isEmpty()) return
+    if (covers.size < 4) {
+        BookCover(covers.first(), Modifier.fillMaxSize(), elevation = 4.dp)
+    } else {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            covers.chunked(2).forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
+                    row.forEach { BookCover(it, Modifier.weight(1f), elevation = 2.dp) }
                 }
             }
         }
-        Spacer(Modifier.height(6.dp))
-        Text(collection.collection.name, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        Text(
-            "${collection.books.size} ${if (collection.books.size == 1) "book" else "books"}",
-            style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 }
 

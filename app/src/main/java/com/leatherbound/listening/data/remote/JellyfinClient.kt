@@ -103,8 +103,11 @@ class JellyfinClient(private val deviceId: String) {
         val bookOf = buildMap {
             groups.forEach { (key, parts) -> put(key, key); parts.forEach { put(it.id, key) } }
         }
-        val collections = setsJob.await().map { (id, name, children) ->
-            RemoteCollection(id, name, children.mapNotNull { bookOf[it] }.distinct())
+        val collections = setsJob.await().map { set ->
+            RemoteCollection(
+                set.id, set.name, set.children.mapNotNull { bookOf[it] }.distinct(),
+                coverUrl = if (set.hasImage) "$base/Items/${set.id}/Images/Primary?maxHeight=600&api_key=$token" else null,
+            )
         }.filter { it.bookRemoteIds.isNotEmpty() }
         val series = seriesIndex(collections)
 
@@ -161,11 +164,14 @@ class JellyfinClient(private val deviceId: String) {
         RemoteCatalog(books, collections)
     }
 
-    /** (id, name, child item ids in order) for every BoxSet. */
-    private suspend fun boxSets(base: String, token: String, userId: String): List<Triple<String, String, List<String>>> = coroutineScope {
+    private data class BoxSet(val id: String, val name: String, val children: List<String>, val hasImage: Boolean)
+
+    /** Every BoxSet with its child item ids in order. */
+    private suspend fun boxSets(base: String, token: String, userId: String): List<BoxSet> = coroutineScope {
         items(base, token, "/Users/$userId/Items?IncludeItemTypes=BoxSet&Recursive=true").map { set ->
             async {
-                Triple(set.id, set.name, items(base, token, "/Users/$userId/Items?ParentId=${set.id}&SortBy=ProductionYear,SortName").map { it.id })
+                val children = items(base, token, "/Users/$userId/Items?ParentId=${set.id}&SortBy=ProductionYear,SortName").map { it.id }
+                BoxSet(set.id, set.name, children, "Primary" in set.imageTags)
             }
         }.awaitAll()
     }

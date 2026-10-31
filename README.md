@@ -7,7 +7,7 @@ A self-made audiobook player for Plex and Jellyfin, with a bound-book look: parc
 | | |
 |---|---|
 | **Sources** | Plex (sign in with your Plex account, or enter a URL + token), Jellyfin (username/password), and folders on the device (Storage Access Framework) |
-| **Library** | Metadata, chapters and covers are cached in a local Room database. Sort by recently added, recently played, title, author (surname-aware), year, series, length, genre. Filter by unread, in progress, finished, downloaded. Grid or list. |
+| **Library** | Metadata, chapters and covers are cached in a local Room database. Sort by recently added, recently played, title, author (surname-aware), year, series, length, genre (genre shows a card per genre, with a filter for which genres appear). Filter by unread, in progress, finished, downloaded. Grid or list. |
 | **Chapters** | Plex embedded chapters, Jellyfin chapters, M4B chapters on local files (Nero `chpl` and QuickTime chapter tracks), or one chapter per file. |
 | **Playback** | Media3/ExoPlayer in a foreground service. Skip back and forward 15 s, crossing file boundaries. Resuming after a pause rewinds 5 s (adjustable 0–30 s), and opening the app rewinds the last book 5 s. Speeds from 0.75× to 2.5×. |
 | **System controls** | Notification, lock screen and Bluetooth controls, with ±15 s in place of previous/next. |
@@ -43,6 +43,7 @@ A self-made audiobook player for Plex and Jellyfin, with a bound-book look: parc
 | Mini player | Swipe up (or tap) | Open the player |
 | Resume, Library | Pull down | Sync with your servers |
 | Up Next | Swipe a book left | Remove it from the list |
+| Up Next, Customise Home | Drag the ≡ grip | Reorder |
 | Any book cover or row | Long-press | Quick menu: play, Up Next, mark finished or unread, download |
 
 ## Building

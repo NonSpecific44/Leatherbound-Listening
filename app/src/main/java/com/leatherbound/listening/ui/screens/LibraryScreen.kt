@@ -35,6 +35,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.TextButton
+import com.leatherbound.listening.ui.components.StackCard
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.CollectionsBookmark
@@ -79,6 +88,10 @@ fun LibraryScreen(vm: AppViewModel, nav: Navigator) {
     var sortMenu by remember { mutableStateOf(false) }
     val wide = LocalWideLayout.current
     val showingBooks = view == LibraryView.BOOKS
+    val genreGroups by vm.genreGroups.collectAsStateWithLifecycle()
+    val allGenres by vm.allGenres.collectAsStateWithLifecycle()
+    var genreFilter by remember { mutableStateOf(false) }
+    if (genreFilter) GenreFilterDialog(allGenres, settings.hiddenGenres, vm::setHiddenGenres) { genreFilter = false }
 
     Column(Modifier.fillMaxSize().paper().statusBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -97,7 +110,10 @@ fun LibraryScreen(vm: AppViewModel, nav: Navigator) {
                     }
                 }
             }
-            if (showingBooks) IconButton(onClick = { vm.setGrid(!settings.libraryGrid) }) {
+            if (showingBooks && settings.librarySort == LibrarySort.GENRE) IconButton(onClick = { genreFilter = true }) {
+                BadgedBox(badge = { if (settings.hiddenGenres.isNotEmpty()) Badge() }) { Icon(Icons.Filled.FilterList, "Choose genres") }
+            }
+            if (showingBooks && settings.librarySort != LibrarySort.GENRE) IconButton(onClick = { vm.setGrid(!settings.libraryGrid) }) {
                 Icon(if (settings.libraryGrid) Icons.AutoMirrored.Filled.ViewList else Icons.Filled.GridView, "Change layout")
             }
             if (syncing) CircularProgressIndicator(Modifier.padding(12.dp).size(24.dp), strokeWidth = 2.dp)
@@ -113,7 +129,7 @@ fun LibraryScreen(vm: AppViewModel, nav: Navigator) {
         OutlinedTextField(
             value = query,
             onValueChange = { vm.query.value = it },
-            placeholder = { Text(if (showingBooks) "Search titles, authors, series, genres, collections" else "Search collections") },
+            placeholder = { Text("Search") },
             leadingIcon = { Icon(Icons.Filled.Search, null) },
             trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { vm.query.value = "" }) { Icon(Icons.Filled.Close, "Clear") } },
             singleLine = true,
@@ -132,19 +148,28 @@ fun LibraryScreen(vm: AppViewModel, nav: Navigator) {
             return@Column
         }
         Text(
-            "${books.size} ${if (books.size == 1) "volume" else "volumes"} · sorted by ${settings.librarySort.label.lowercase()}" +
+            (if (settings.librarySort == LibrarySort.GENRE) "${genreGroups.size} ${if (genreGroups.size == 1) "genre" else "genres"} · ${books.size} volumes"
+            else "${books.size} ${if (books.size == 1) "volume" else "volumes"} · sorted by ${settings.librarySort.label.lowercase()}") +
                 if (matching.isNotEmpty()) " · ${matching.size} ${if (matching.size == 1) "collection" else "collections"}" else "",
             style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
         )
 
-        // Sorting by genre shows a heading above each genre.
-        val sections: List<Pair<String?, List<BookEntity>>> =
-            if (settings.librarySort == LibrarySort.GENRE) books.groupBy { it.primaryGenre ?: "No genre" }.toList() else listOf(null to books)
+        val byGenre = settings.librarySort == LibrarySort.GENRE
 
         // Pull down to sync with your servers.
         PullToRefreshBox(isRefreshing = syncing, onRefresh = { vm.sync() }, modifier = Modifier.fillMaxSize()) {
         when {
+            // Sorting by genre shows one card per genre, like collections; tap one for its books.
+            byGenre -> LazyVerticalGrid(columns = GridCells.Adaptive(150.dp), contentPadding = PaddingValues(10.dp), modifier = Modifier.fillMaxSize()) {
+                if (matching.isNotEmpty()) item(span = { GridItemSpan(maxLineSpan) }, key = "collections") { MatchingCollections(matching, nav) }
+                if (genreGroups.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
+                    EmptyPage("No genres to show", if (settings.hiddenGenres.isNotEmpty()) "Some genres are switched off. Tap the filter button to choose which show." else "Genres appear after your libraries sync.")
+                }
+                items(genreGroups, key = { "genre:" + it.first }) { (genre, list) ->
+                    StackCard(genre, list, null, { nav.genre(genre) }, width = Dp.Unspecified)
+                }
+            }
             books.isEmpty() && matching.isEmpty() -> EmptyPage("Nothing on these shelves", if (query.isNotBlank() || filter != LibraryFilter.ALL) "Try a different search or filter." else "Add a library in Settings to begin.")
             settings.libraryGrid -> LazyVerticalGrid(
                 columns = GridCells.Adaptive(if (wide) 160.dp else 120.dp),
@@ -152,26 +177,45 @@ fun LibraryScreen(vm: AppViewModel, nav: Navigator) {
                 modifier = Modifier.fillMaxSize(),
             ) {
                 if (matching.isNotEmpty()) item(span = { GridItemSpan(maxLineSpan) }, key = "collections") { MatchingCollections(matching, nav) }
-                sections.forEach { (heading, list) ->
-                    if (heading != null) item(span = { GridItemSpan(maxLineSpan) }, key = "genre:$heading") { GenreHeading(heading, list.size) }
-                    items(list, key = { it.id }) { BookTile(it, { nav.book(it.id) }) }
-                }
+                items(books, key = { it.id }) { BookTile(it, { nav.book(it.id) }) }
             }
             else -> LazyColumn(Modifier.fillMaxSize()) {
                 if (matching.isNotEmpty()) item(key = "collections") { MatchingCollections(matching, nav) }
-                sections.forEach { (heading, list) ->
-                    if (heading != null) item(key = "genre:$heading") { GenreHeading(heading, list.size) }
-                    items(list, key = { it.id }) { BookRow(it, { nav.book(it.id) }) }
-                }
+                items(books, key = { it.id }) { BookRow(it, { nav.book(it.id) }) }
             }
         }
         }
     }
 }
 
+/** Tick the genres to show when sorting by genre. */
 @Composable
-private fun GenreHeading(genre: String, count: Int) {
-    Ornament("$genre  ·  $count", Modifier.padding(horizontal = 10.dp, vertical = 10.dp))
+private fun GenreFilterDialog(all: List<String>, hidden: Set<String>, onChange: (Set<String>) -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Genres to show") },
+        text = {
+            Column {
+                Row {
+                    TextButton(onClick = { onChange(emptySet()) }) { Text("Select all") }
+                    TextButton(onClick = { onChange(all.toSet()) }) { Text("Select none") }
+                }
+                LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                    items(all) { genre ->
+                        val shown = genre !in hidden
+                        Row(
+                            Modifier.fillMaxWidth().clickable { onChange(if (shown) hidden + genre else hidden - genre) }.padding(vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(checked = shown, onCheckedChange = { onChange(if (it) hidden - genre else hidden + genre) })
+                            Text(genre, style = MaterialTheme.typography.bodyLarge)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
+    )
 }
 
 /** Collections that match the search, shown above the matching books. */

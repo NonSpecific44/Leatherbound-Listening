@@ -73,6 +73,7 @@ interface LibraryDao {
 
     // Collections
     @Query("SELECT * FROM collections ORDER BY name COLLATE NOCASE") fun observeCollections(): Flow<List<CollectionEntity>>
+    @Query("SELECT * FROM collections WHERE id = :id") suspend fun collection(id: String): CollectionEntity?
     @Query("SELECT * FROM collection_books ORDER BY position") fun observeCollectionBooks(): Flow<List<CollectionBookEntity>>
     @Query("DELETE FROM collections WHERE sourceId = :sourceId") suspend fun deleteCollectionsForSource(sourceId: Long)
     @Query("DELETE FROM collection_books WHERE collectionId IN (SELECT id FROM collections WHERE sourceId = :sourceId)")

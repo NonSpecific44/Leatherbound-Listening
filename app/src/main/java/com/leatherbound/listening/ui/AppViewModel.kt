@@ -11,6 +11,7 @@ import com.leatherbound.listening.data.Downloads
 import com.leatherbound.listening.data.LibrarySort
 import com.leatherbound.listening.data.ThemeMode
 import com.leatherbound.listening.data.authorSortKey
+import com.leatherbound.listening.data.groupByGenre
 import com.leatherbound.listening.data.db.BookEntity
 import com.leatherbound.listening.data.db.ChapterEntity
 import com.leatherbound.listening.data.db.CollectionEntity
@@ -148,6 +149,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (s.sortDescending) sorted.reversed() else sorted
     }.state(emptyList())
 
+    /** Every genre in the library, for the genre filter. */
+    val allGenres: StateFlow<List<String>> = books.map { all -> groupByGenre(all).map { it.first } }.state(emptyList())
+
+    /** The filtered/searched library grouped by genre, minus genres switched off in the filter. */
+    val genreGroups: StateFlow<List<Pair<String, List<BookEntity>>>> = combine(library, settings) { lib, s ->
+        groupByGenre(lib).filter { it.first !in s.hiddenGenres }
+    }.state(emptyList())
+
+    fun genre(name: String): Flow<List<BookEntity>> = books.map { all -> groupByGenre(all).firstOrNull { it.first == name }?.second.orEmpty() }
+
     val stats: StateFlow<Stats> = combine(dao.observeListeningDays(), books) { days, all -> computeStats(days, all) }.state(Stats())
 
     private fun computeStats(days: List<ListeningDayEntity>, all: List<BookEntity>): Stats {
@@ -201,6 +212,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun play(id: String, startMs: Long? = null) = player.play(id, startMs)
     fun toggleList(id: String) = viewModelScope.launch { repo.toggleListeningList(id) }
     fun moveInList(id: String, up: Boolean) = viewModelScope.launch { repo.moveInList(id, up) }
+    fun reorderList(ids: List<String>) = viewModelScope.launch { repo.reorderList(ids) }
     fun setFinished(id: String, finished: Boolean) = viewModelScope.launch {
         if (finished) player.stopIfPlaying(id)
         repo.setFinished(id, finished)
@@ -226,6 +238,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun setDeleteWhenFinished(v: Boolean) = viewModelScope.launch { c.settings.setDeleteDownloadWhenFinished(v) }
     fun setYearlyGoal(v: Int) = viewModelScope.launch { c.settings.setYearlyGoal(v.coerceIn(1, 365)) }
     fun setCustomName(v: String) = viewModelScope.launch { c.settings.setCustomName(v) }
+    fun setHomeLayout(v: com.leatherbound.listening.data.HomeLayout) = viewModelScope.launch { c.settings.setHomeLayout(v) }
+    fun setHiddenGenres(v: Set<String>) = viewModelScope.launch { c.settings.setHiddenGenres(v) }
     fun setDefaultSpeed(v: Float) = viewModelScope.launch { c.settings.setPlaybackSpeed(v) }
 
     fun addBookmark(note: String) = player.addBookmark(note)

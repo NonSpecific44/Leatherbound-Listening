@@ -63,6 +63,13 @@ fun CollectionScreen(vm: AppViewModel, nav: Navigator, id: String) {
     }
 }
 
+/** Every book in one genre, by author then title. */
+@Composable
+fun GenreScreen(vm: AppViewModel, nav: Navigator, genre: String) {
+    val books by remember(genre) { vm.genre(genre) }.collectAsState(emptyList())
+    CollectionPage(nav, genre, summary(books)) { section(null, books) }
+}
+
 private fun summary(books: List<BookEntity>): String {
     val finished = books.count { it.isFinished }
     return "${books.size} ${if (books.size == 1) "book" else "books"} · ${formatDuration(books.sumOf { it.durationMs })}" +

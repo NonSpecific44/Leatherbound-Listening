@@ -65,6 +65,7 @@ import com.leatherbound.listening.ui.components.BookActions
 import com.leatherbound.listening.ui.components.AppTopBar
 import com.leatherbound.listening.ui.components.ConfirmDialog
 import com.leatherbound.listening.ui.screens.CollectionScreen
+import com.leatherbound.listening.ui.screens.GenreScreen
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.runtime.mutableStateOf
@@ -104,6 +105,7 @@ class Navigator(private val nav: NavHostController) {
     fun downloads() = nav.navigate("downloads") { launchSingleTop = true }
     fun collection(id: String) = nav.navigate("collection/${android.net.Uri.encode(id)}")
     fun libraryCollections() = tab("library")
+    fun genre(name: String) = nav.navigate("genre/${android.net.Uri.encode(name)}")
     fun settings() = tab("settings")
     fun back() = nav.popBackStack()
     fun tab(route: String) = nav.navigate(route) {
@@ -135,6 +137,7 @@ fun LeatherboundRoot(vm: AppViewModel) {
             composable("author/{name}") { e -> AuthorScreen(vm, navigator, android.net.Uri.decode(e.arguments?.getString("name").orEmpty())) }
             composable("series/{name}") { e -> SeriesScreen(vm, navigator, android.net.Uri.decode(e.arguments?.getString("name").orEmpty())) }
             composable("downloads") { DownloadsScreen(vm, navigator) }
+            composable("genre/{name}") { e -> GenreScreen(vm, navigator, android.net.Uri.decode(e.arguments?.getString("name").orEmpty())) }
             composable("collection/{id}") { e -> CollectionScreen(vm, navigator, android.net.Uri.decode(e.arguments?.getString("id").orEmpty())) }
         }
     }

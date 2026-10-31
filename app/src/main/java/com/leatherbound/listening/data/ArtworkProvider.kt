@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.ParcelFileDescriptor
 import com.leatherbound.listening.LeatherboundApp
 import com.leatherbound.listening.data.db.BookEntity
+import com.leatherbound.listening.data.db.CollectionEntity
 import com.leatherbound.listening.data.local.LocalScanner
 import com.leatherbound.listening.data.remote.Http
 import kotlinx.coroutines.runBlocking
@@ -27,12 +28,18 @@ class ArtworkProvider : ContentProvider() {
 
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {
         val ctx = context ?: throw FileNotFoundException()
-        val bookId = uri.pathSegments.firstOrNull()?.let(Uri::decode) ?: throw FileNotFoundException()
+        val segments = uri.pathSegments
         val repo = (ctx.applicationContext as LeatherboundApp).container.repository
         val file = runBlocking {
-            val book = repo.dao.book(bookId) ?: throw FileNotFoundException(bookId)
-            val source = repo.dao.source(book.sourceId)
-            val url = book.coverUrl ?: throw FileNotFoundException("no cover")
+            // content://…/<bookId>/<v> for books, content://…/c/<collectionId>/<v> for collections.
+            val (sourceId, url) = if (segments.firstOrNull() == "c") {
+                val c = repo.dao.collection(Uri.decode(segments.getOrNull(1) ?: "")) ?: throw FileNotFoundException()
+                c.sourceId to (c.coverUrl ?: throw FileNotFoundException("no cover"))
+            } else {
+                val book = repo.dao.book(Uri.decode(segments.firstOrNull() ?: "")) ?: throw FileNotFoundException()
+                book.sourceId to (book.coverUrl ?: throw FileNotFoundException("no cover"))
+            }
+            val source = repo.dao.source(sourceId)
             val cached = File(File(ctx.filesDir, "artwork").apply { mkdirs() }, LocalScanner.sha1(url) + ".img")
             if (!cached.exists() || cached.length() == 0L) {
                 val tmp = File(cached.path + ".tmp")
@@ -65,6 +72,10 @@ class ArtworkProvider : ContentProvider() {
         /** The version segment changes when the cover does, so caches refresh. */
         fun uri(book: BookEntity): Uri? = book.coverUrl?.let {
             Uri.parse("content://$AUTHORITY/${Uri.encode(book.id)}/${LocalScanner.sha1(it).take(12)}")
+        }
+
+        fun uri(collection: CollectionEntity): Uri? = collection.coverUrl?.let {
+            Uri.parse("content://$AUTHORITY/c/${Uri.encode(collection.id)}/${LocalScanner.sha1(it).take(12)}")
         }
     }
 }

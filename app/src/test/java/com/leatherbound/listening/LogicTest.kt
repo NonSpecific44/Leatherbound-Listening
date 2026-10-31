@@ -109,16 +109,61 @@ class LogicTest {
         )
     }
 
-    @Test fun seriesComesFromTheFirstCollectionABookIsIn() {
+    @Test fun seriesIsTheSmallestCollectionABookIsIn() {
         val map = seriesIndex(
             listOf(
+                RemoteCollection("2", "Favourites", listOf("x", "c", "d", "y", "z")),
                 RemoteCollection("1", "Discworld", listOf("a", "b", "c")),
-                RemoteCollection("2", "Favourites", listOf("c", "d")),
             )
         )
         assertEquals("Discworld" to 3f, map["c"])
-        assertEquals("Favourites" to 2f, map["d"])
-        assertNull(map["z"])
+        assertEquals("Favourites" to 3f, map["d"])
+        assertNull(map["q"])
+    }
+
+    private fun book(id: String, finished: Boolean = false) =
+        com.leatherbound.listening.data.db.BookEntity(id, 1, id, id, id, "Author", isFinished = finished)
+
+    @Test fun nextBookPrefersTheSeries() {
+        val series = listOf(book("s1"), book("s2"), book("s3"))
+        val upNext = listOf(book("u1"))
+        assertEquals("s2", com.leatherbound.listening.data.chooseNextBook(series[0], series, upNext)?.id)
+    }
+
+    @Test fun nextBookSkipsFinishedSeriesBooks() {
+        val series = listOf(book("s1"), book("s2", finished = true), book("s3"))
+        assertEquals("s3", com.leatherbound.listening.data.chooseNextBook(series[0], series, listOf(book("u1")))?.id)
+    }
+
+    @Test fun upNextOnlyWhenTheSeriesHasNothingLeft() {
+        val series = listOf(book("s1"), book("s2"))
+        val upNext = listOf(book("s2"), book("u1"))
+        // Last in the series: Up Next's top book, skipping the one just finished.
+        assertEquals("u1", com.leatherbound.listening.data.chooseNextBook(series[1], series, upNext)?.id)
+        // Not in a series at all.
+        assertEquals("u1", com.leatherbound.listening.data.chooseNextBook(book("solo"), emptyList(), listOf(book("u1")))?.id)
+        assertNull(com.leatherbound.listening.data.chooseNextBook(book("solo"), emptyList(), emptyList()))
+    }
+
+    @Test fun homeLayoutRoundTripsAndFillsInNewSections() {
+        val parsed = com.leatherbound.listening.data.HomeLayout.parse("COLLECTIONS,-UP_NEXT,BOGUS")
+        assertEquals(com.leatherbound.listening.data.HomeSection.COLLECTIONS, parsed.order.first())
+        assertTrue(com.leatherbound.listening.data.HomeSection.UP_NEXT in parsed.hidden)
+        assertEquals(com.leatherbound.listening.data.HomeSection.entries.size, parsed.order.size)
+        assertEquals(parsed, com.leatherbound.listening.data.HomeLayout.parse(parsed.encode()))
+        assertEquals(com.leatherbound.listening.data.HomeLayout.DEFAULT, com.leatherbound.listening.data.HomeLayout.parse(null))
+        assertEquals(
+            listOf(com.leatherbound.listening.data.HomeSection.UP_NEXT, com.leatherbound.listening.data.HomeSection.JUMP_BACK_IN),
+            com.leatherbound.listening.data.HomeLayout.DEFAULT.order.take(2),
+        )
+    }
+
+    @Test fun genresGroupBooksUnderEachGenre() {
+        fun b(id: String, genres: String?) = com.leatherbound.listening.data.db.BookEntity(id, 1, id, id, id, "A", genres = genres)
+        val groups = com.leatherbound.listening.data.groupByGenre(listOf(b("1", "Fantasy, Humour"), b("2", "fantasy"), b("3", null), b("4", "Humour"), b("5", "Fantasy")))
+        assertEquals(listOf("Fantasy", "Humour", "No genre"), groups.map { it.first })
+        assertEquals(listOf("1", "2", "5"), groups.first().second.map { it.id })
+        assertEquals(listOf("1", "4"), groups.first { it.first == "Humour" }.second.map { it.id })
     }
 
     @Test fun greetingUsesFirstName() {

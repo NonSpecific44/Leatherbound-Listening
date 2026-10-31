@@ -226,7 +226,9 @@ class PlexClient(private val clientId: String) {
         get(base, "/library/sections/$libraryId/collections", token).metadata.map { collection ->
             async {
                 val albums = get(base, "/library/collections/${collection.ratingKey}/children", token).metadata.map { it.ratingKey }
-                RemoteCollection(collection.ratingKey, collection.title, albums)
+                // thumb is the custom poster if one was set, otherwise Plex's own composite.
+                val cover = collection.thumb?.let { "$base/photo/:/transcode?width=600&height=600&minSize=1&url=${URLEncoder.encode(it, "UTF-8")}&X-Plex-Token=$token" }
+                RemoteCollection(collection.ratingKey, collection.title, albums, cover)
             }
         }.awaitAll()
     }

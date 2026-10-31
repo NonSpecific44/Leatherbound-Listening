@@ -37,14 +37,19 @@ data class RemoteBook(
 )
 
 /** A Plex collection or Jellyfin BoxSet, with its books in the server's order. */
-data class RemoteCollection(val remoteId: String, val name: String, val bookRemoteIds: List<String>)
+data class RemoteCollection(val remoteId: String, val name: String, val bookRemoteIds: List<String>, val coverUrl: String? = null)
 
 data class RemoteCatalog(val books: List<RemoteBook>, val collections: List<RemoteCollection> = emptyList())
 
-/** Series = the first collection a book is in, with its position there (1-based). */
+/**
+ * A book's series is the smallest collection it's in, with its position there (1-based).
+ * Series are usually small; broad collections ("Favourites", "Sci-Fi") lose to them.
+ */
 fun seriesIndex(collections: List<RemoteCollection>): Map<String, Pair<String, Float>> {
     val map = mutableMapOf<String, Pair<String, Float>>()
-    collections.forEach { c -> c.bookRemoteIds.forEachIndexed { i, id -> map.putIfAbsent(id, c.name to (i + 1).toFloat()) } }
+    collections.sortedBy { it.bookRemoteIds.size }.forEach { c ->
+        c.bookRemoteIds.forEachIndexed { i, id -> map.putIfAbsent(id, c.name to (i + 1).toFloat()) }
+    }
     return map
 }
 

@@ -4,7 +4,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -60,14 +61,21 @@ fun StatsScreen(vm: AppViewModel, nav: com.leatherbound.listening.ui.Navigator) 
         Spacer(Modifier.height(12.dp))
         GoalCard(stats.finishedThisYearBooks.size, settings.yearlyGoal) { editGoal = true }
         Spacer(Modifier.height(12.dp))
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp), maxItemsInEachRow = if (wide) 6 else 2) {
-            val tile = Modifier.weight(1f)
-            StatTile("Today", formatDuration(stats.todayMs), tile)
-            StatTile("This week", formatDuration(stats.weekMs), tile)
-            StatTile("All time", formatDuration(stats.totalMs), tile)
-            StatTile("Daily average", formatDuration(stats.dailyAverageMs), tile, "last 30 days")
-            StatTile("Streak", "${stats.streakDays} ${if (stats.streakDays == 1) "day" else "days"}", tile)
-            StatTile("Books finished", stats.finishedTotal.toString(), tile, "${stats.finishedThisYear} this year")
+        // A fixed grid (3 across on tablets, 2 on phones) so every tile is the same size.
+        val tiles = listOf(
+            Triple("Today", formatDuration(stats.todayMs), "since midnight"),
+            Triple("This week", formatDuration(stats.weekMs), "last 7 days"),
+            Triple("All time", formatDuration(stats.totalMs), "since you began"),
+            Triple("Daily average", formatDuration(stats.dailyAverageMs), "last 30 days"),
+            Triple("Streak", "${stats.streakDays} ${if (stats.streakDays == 1) "day" else "days"}", "in a row"),
+            Triple("Books finished", stats.finishedTotal.toString(), "${stats.finishedThisYear} this year"),
+        )
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            tiles.chunked(if (wide) 3 else 2).forEach { row ->
+                Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    row.forEach { (label, value, note) -> StatTile(label, value, Modifier.weight(1f).fillMaxHeight(), note) }
+                }
+            }
         }
 
         Spacer(Modifier.height(20.dp))
@@ -167,7 +175,7 @@ private fun StatTile(label: String, value: String, modifier: Modifier, note: Str
     ) {
         Column(Modifier.padding(16.dp)) {
             Text(label.uppercase(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
-            Text(value, style = MaterialTheme.typography.headlineSmall)
+            Text(value, style = MaterialTheme.typography.headlineSmall, maxLines = 1)
             note?.let { Text(it, style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
     }

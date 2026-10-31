@@ -17,6 +17,7 @@ import com.leatherbound.listening.data.remote.JellyfinClient
 import com.leatherbound.listening.data.remote.PlexClient
 import com.leatherbound.listening.data.remote.RemoteBook
 import com.leatherbound.listening.data.remote.RemoteCatalog
+import com.leatherbound.listening.data.remote.RemoteCollection
 import com.leatherbound.listening.data.remote.fallbackChapters
 import com.leatherbound.listening.playback.locate
 import kotlinx.coroutines.async
@@ -201,16 +202,19 @@ class LibraryRepository(
     private suspend fun saveCollections(source: SourceEntity, catalog: RemoteCatalog) {
         val books = dao.booksForSource(source.id)
         val known = books.map { it.id }.toSet()
-        val groups: List<Triple<String, String, List<String>>> = if (source.type == SourceType.LOCAL) {
+        val token = source.secret()
+        val groups: List<RemoteCollection> = if (source.type == SourceType.LOCAL) {
             books.filter { it.seriesName != null }.groupBy { it.seriesName!! }.map { (name, list) ->
-                Triple(LocalScanner.sha1(name), name, list.sortedWith(compareBy({ it.seriesIndex ?: 0f }, { it.sortTitle })).map { it.id })
+                RemoteCollection(LocalScanner.sha1(name), name, list.sortedWith(compareBy({ it.seriesIndex ?: 0f }, { it.sortTitle })).map { it.id })
             }
         } else {
-            catalog.collections.map { c -> Triple(c.remoteId, c.name, c.bookRemoteIds.map { bookId(source, it) }) }
+            catalog.collections.map { c -> c.copy(bookRemoteIds = c.bookRemoteIds.map { bookId(source, it) }) }
         }
-        val collections = groups.map { (remoteId, name, _) -> CollectionEntity("${source.id}:$remoteId", source.id, remoteId, name) }
-        val links = groups.flatMap { (remoteId, _, ids) ->
-            ids.filter { it in known }.distinct().mapIndexed { i, id -> CollectionBookEntity("${source.id}:$remoteId", id, i) }
+        val collections = groups.map { c ->
+            CollectionEntity("${source.id}:${c.remoteId}", source.id, c.remoteId, c.name, c.coverUrl?.let { TokenVault.strip(it, token) })
+        }
+        val links = groups.flatMap { c ->
+            c.bookRemoteIds.filter { it in known }.distinct().mapIndexed { i, id -> CollectionBookEntity("${source.id}:${c.remoteId}", id, i) }
         }
         val nonEmpty = links.map { it.collectionId }.toSet()
         dao.replaceCollections(source.id, collections.filter { it.id in nonEmpty }, links)
@@ -370,19 +374,19 @@ class LibraryRepository(
         list.forEachIndexed { index, b -> dao.setListPosition(b.id, index + 1) }
     }
 
-    /** The next book in the same series (Plex/Jellyfin collection), else the top of the listening list. */
-    suspend fun nextAfter(book: BookEntity): BookEntity? {
-        book.seriesName?.let { series ->
-            val all = dao.series(series)
-            val idx = all.indexOfFirst { it.id == book.id }
-            all.drop(idx + 1).firstOrNull { !it.isFinished }?.let { return it }
-        }
-        return dao.listeningList().firstOrNull { it.id != book.id && !it.isFinished }
+    /** The next book in the same series, else (only if the series has none left) the top of Up Next. */
+    suspend fun nextAfter(book: BookEntity): BookEntity? =
+        chooseNextBook(book, book.seriesName?.let { dao.series(it) }.orEmpty(), dao.listeningList())
+
+    /** Saves a new Up Next order (from drag and drop). */
+    suspend fun reorderList(ids: List<String>) {
+        ids.forEachIndexed { i, id -> dao.setListPosition(id, i + 1) }
     }
 
     /**
-     * Once you're 80% through a book, download the one book that comes next (series, else Up Next).
-     * Only ever that one: books further along wait until you're near the end of this one.
+     * Once you're 80% through a book, download the one book that comes next: the next in its series,
+     * or the top of Up Next only when the series has nothing left. If that book is already
+     * downloaded (or downloading), nothing else is fetched in its place.
      */
     suspend fun downloadNextIfWanted(book: BookEntity) {
         val s = settings.current()

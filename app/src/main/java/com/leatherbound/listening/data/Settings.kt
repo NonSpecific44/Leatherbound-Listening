@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -51,6 +52,9 @@ data class AppSettings(
     val accountName: String = "",
     /** Name you typed in Settings; wins over [accountName]. */
     val customName: String = "",
+    val homeLayout: HomeLayout = HomeLayout.DEFAULT,
+    /** Genres unticked in the Library's genre filter. */
+    val hiddenGenres: Set<String> = emptySet(),
 ) {
     /** What the home screen greets you by; empty for no name. */
     val displayName: String get() = customName.ifBlank { accountName }
@@ -77,6 +81,8 @@ class SettingsStore(private val context: Context) {
         val yearlyGoal = intPreferencesKey("yearly_goal")
         val accountName = stringPreferencesKey("account_name")
         val customName = stringPreferencesKey("custom_name")
+        val homeLayout = stringPreferencesKey("home_layout")
+        val hiddenGenres = stringSetPreferencesKey("hidden_genres")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { p ->
@@ -99,6 +105,8 @@ class SettingsStore(private val context: Context) {
             yearlyGoal = p[Keys.yearlyGoal] ?: 12,
             accountName = p[Keys.accountName].orEmpty(),
             customName = p[Keys.customName].orEmpty(),
+            homeLayout = HomeLayout.parse(p[Keys.homeLayout]),
+            hiddenGenres = p[Keys.hiddenGenres].orEmpty(),
         )
     }
 
@@ -126,6 +134,8 @@ class SettingsStore(private val context: Context) {
     suspend fun setYearlyGoal(v: Int) = set(Keys.yearlyGoal, v)
     suspend fun setAccountName(v: String) = set(Keys.accountName, v)
     suspend fun setCustomName(v: String) = set(Keys.customName, v.trim())
+    suspend fun setHomeLayout(v: HomeLayout) = set(Keys.homeLayout, v.encode())
+    suspend fun setHiddenGenres(v: Set<String>) = set(Keys.hiddenGenres, v)
 
     /** Stable per-install identifier that Plex and Jellyfin use to recognise this device. */
     suspend fun deviceId(): String {

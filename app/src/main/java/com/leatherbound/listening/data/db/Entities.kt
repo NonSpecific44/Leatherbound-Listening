@@ -98,6 +98,8 @@ data class CollectionEntity(
     val sourceId: Long,
     val remoteId: String,
     val name: String,
+    /** The collection's own artwork, if the server has one ({token} placeholder, like book covers). */
+    val coverUrl: String? = null,
 )
 
 @Entity(tableName = "collection_books", primaryKeys = ["collectionId", "bookId"], indices = [Index("bookId")])
