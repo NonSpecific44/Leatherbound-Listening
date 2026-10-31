@@ -5,6 +5,10 @@ All notable changes to Leatherbound Listening. Add new entries under **Unrelease
 
 ## [Unreleased]
 
+### Changed
+- Library: scrolling down tucks away the title, sort and view buttons, and chips, leaving just the search bar above your books. Scrolling up brings them straight back
+- Library: the volume count now sits under the "Library" title, and the status filter chips sit above the search bar
+
 ## [2.1.0] - 2026-10-31
 
 ### Added

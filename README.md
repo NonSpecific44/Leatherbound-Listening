@@ -42,6 +42,7 @@ A self-made audiobook player for Plex and Jellyfin, with a bound-book look: parc
 | Player cover | Long-press | Add a bookmark |
 | Mini player | Swipe up (or tap) | Open the player |
 | Resume, Library | Pull down | Sync with your servers |
+| Library | Scroll down / up | Hide / show everything above the search bar |
 | Up Next | Swipe a book left | Remove it from the list |
 | Up Next, Customise Home | Drag the ≡ grip | Reorder |
 | Any book cover or row | Long-press | Quick menu: play, Up Next, mark finished or unread, download |
