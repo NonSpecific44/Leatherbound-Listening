@@ -139,7 +139,7 @@ fun SettingsScreen(vm: AppViewModel, nav: com.leatherbound.listening.ui.Navigato
             Spacer(Modifier.height(12.dp))
             Ornament("Downloads")
             Toggle("Download on Wi-Fi only", null, settings.downloadOnWifiOnly, vm::setWifiOnly)
-            Toggle("Download the next book automatically", "When the book you're playing is downloaded, fetch the next in its series or Up Next", settings.autoDownloadNext, vm::setAutoDownloadNext)
+            Toggle("Download the next book automatically", "When you're 80% through a book, download the next one in its series (or Up Next). Only that one book.", settings.autoDownloadNext, vm::setAutoDownloadNext)
             Toggle("Delete downloads of finished books", null, settings.deleteDownloadWhenFinished, vm::setDeleteWhenFinished)
             OutlinedButton(onClick = { nav.downloads() }, modifier = Modifier.padding(vertical = 4.dp)) { Text("Manage downloads") }
 

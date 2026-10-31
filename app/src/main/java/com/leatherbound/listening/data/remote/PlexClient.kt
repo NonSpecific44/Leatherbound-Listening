@@ -38,10 +38,12 @@ import java.net.URLEncoder
     val viewOffset: Long? = null,
     val viewCount: Int? = null,
     val lastViewedAt: Long? = null,
+    @SerialName("Genre") val genres: List<PlexTag> = emptyList(),
     @SerialName("Media") val media: List<PlexMedia> = emptyList(),
     @SerialName("Chapter") val chapters: List<PlexChapter> = emptyList(),
 )
 
+@Serializable private data class PlexTag(val tag: String = "")
 @Serializable private data class PlexMedia(val container: String? = null, val duration: Long = 0, @SerialName("Part") val parts: List<PlexPart> = emptyList())
 @Serializable private data class PlexPart(val key: String = "", val duration: Long = 0)
 @Serializable private data class PlexChapter(val tag: String? = null, val index: Int = 0, val startTimeOffset: Long = 0, val endTimeOffset: Long = 0)
@@ -171,14 +173,15 @@ class PlexClient(private val clientId: String) {
             .filter { it.type == "artist" }
             .map { RemoteLibrary(it.key, it.title) }
 
-    suspend fun books(base: String, token: String, libraryId: String): List<RemoteBook> = coroutineScope {
+    suspend fun books(base: String, token: String, libraryId: String): RemoteCatalog = coroutineScope {
         val albumsJob = async { get(base, "/library/sections/$libraryId/all?type=9", token).metadata }
         val tracksJob = async { get(base, "/library/sections/$libraryId/all?type=10", token).metadata }
-        val seriesJob = async { runCatching { series(base, token, libraryId) }.getOrDefault(emptyMap()) }
+        val collectionsJob = async { runCatching { collections(base, token, libraryId) }.getOrDefault(emptyList()) }
         val tracksByAlbum = tracksJob.await().groupBy { it.parentRatingKey }
-        val series = seriesJob.await()
+        val collections = collectionsJob.await()
+        val series = seriesIndex(collections)
 
-        albumsJob.await().mapNotNull { album ->
+        val books = albumsJob.await().mapNotNull { album ->
             val files = tracksByAlbum[album.ratingKey].orEmpty()
                 .sortedWith(compareBy({ it.parentIndex ?: 0 }, { it.index ?: 0 }))
                 .mapNotNull { t ->
@@ -212,19 +215,31 @@ class PlexClient(private val clientId: String) {
                 seriesName = seriesName,
                 seriesIndex = seriesIndex,
                 serverProgress = progress,
+                genres = album.genres.map { it.tag }.filter { it.isNotBlank() },
             )
         }
+        RemoteCatalog(books, collections)
     }
 
-    /** album ratingKey -> (collection title, 1-based position). */
-    private suspend fun series(base: String, token: String, libraryId: String): Map<String, Pair<String, Float>> = coroutineScope {
+    /** The library's collections, each with its albums in Plex's order. */
+    private suspend fun collections(base: String, token: String, libraryId: String): List<RemoteCollection> = coroutineScope {
         get(base, "/library/sections/$libraryId/collections", token).metadata.map { collection ->
             async {
-                get(base, "/library/collections/${collection.ratingKey}/children", token).metadata
-                    .mapIndexed { i, album -> album.ratingKey to (collection.title to (i + 1).toFloat()) }
+                val albums = get(base, "/library/collections/${collection.ratingKey}/children", token).metadata.map { it.ratingKey }
+                RemoteCollection(collection.ratingKey, collection.title, albums)
             }
-        }.awaitAll().flatten().toMap()
+        }.awaitAll()
     }
+
+    /** Clears played state and position for every track of the album. */
+    suspend fun markUnplayed(base: String, token: String, ratingKey: String) {
+        Http.send(request("$base/:/unscrobble?identifier=com.plexapp.plugins.library&key=$ratingKey", token).build())
+    }
+
+    /** True if the server answers at all. */
+    suspend fun ping(base: String, token: String): Boolean = runCatching {
+        Http.send(request("$base/identity", token).build(), Http.probeClient); true
+    }.getOrDefault(false)
 
     /** Embedded chapters for each track, converted to whole-book time. */
     suspend fun chapters(base: String, token: String, tracks: List<Pair<String, Long>>): List<RemoteChapter> {

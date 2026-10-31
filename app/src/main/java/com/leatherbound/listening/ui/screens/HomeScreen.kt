@@ -25,6 +25,17 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.runtime.LaunchedEffect
+import com.leatherbound.listening.ui.LibraryView
+import com.leatherbound.listening.ui.components.CollectionCard
+import com.leatherbound.listening.ui.components.Ornament
+import com.leatherbound.listening.ui.components.ServerStatusRow
+import com.leatherbound.listening.ui.components.ShelfBoard
+import kotlinx.coroutines.delay
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -61,6 +72,17 @@ fun HomeScreen(vm: AppViewModel, nav: Navigator) {
     val current by remember(currentId) { currentId?.let { vm.book(it) } ?: kotlinx.coroutines.flow.flowOf(null) }.collectAsState(null)
     val recent = remember(books) { books.sortedByDescending { it.addedAt }.take(20) }
     val settings by vm.settings.collectAsStateWithLifecycle()
+    val sources by vm.sources.collectAsStateWithLifecycle()
+    val serverStatus by vm.serverStatus.collectAsStateWithLifecycle()
+    val collections by vm.collections.collectAsStateWithLifecycle()
+    val online = com.leatherbound.listening.ui.components.LocalAvailability.current.online
+    // Check the servers while Home is on screen, and again whenever the connection changes.
+    LaunchedEffect(online, sources.size) {
+        while (true) {
+            vm.checkServers()
+            delay(60_000)
+        }
+    }
 
     val syncing by vm.syncing.collectAsStateWithLifecycle()
     // Pull down to sync with your servers.
@@ -70,8 +92,10 @@ fun HomeScreen(vm: AppViewModel, nav: Navigator) {
         val name = settings.displayName
         Text(if (name.isBlank()) greeting else "$greeting, $name", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(start = 20.dp, top = 20.dp))
         Text("Where were we?", style = MaterialTheme.typography.bodyLarge, fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp))
-        Spacer(Modifier.height(16.dp))
-        if (!com.leatherbound.listening.ui.components.LocalAvailability.current.online) {
+        Spacer(Modifier.height(10.dp))
+        ServerStatusRow(sources, serverStatus, onRefresh = { vm.checkServers() })
+        Spacer(Modifier.height(12.dp))
+        if (!online) {
             Text(
                 "You're offline. Downloaded books and books on this phone can still play.",
                 style = MaterialTheme.typography.bodyMedium, fontStyle = FontStyle.Italic,
@@ -97,6 +121,16 @@ fun HomeScreen(vm: AppViewModel, nav: Navigator) {
         Spacer(Modifier.height(8.dp))
         Shelf("Continue listening", inProgress.filter { it.id != current?.id }, { nav.book(it.id) })
         Shelf("Up next", list, { nav.book(it.id) })
+        if (collections.isNotEmpty()) {
+            Row(Modifier.fillMaxWidth().padding(end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Ornament("Collections", Modifier.weight(1f).padding(start = 16.dp, top = 8.dp, bottom = 8.dp))
+                TextButton(onClick = { vm.libraryView.value = LibraryView.COLLECTIONS; nav.libraryCollections() }) { Text("See all") }
+            }
+            LazyRow(contentPadding = PaddingValues(horizontal = 10.dp)) {
+                items(collections.take(20), key = { it.collection.id }) { CollectionCard(it, { nav.collection(it.collection.id) }) }
+            }
+            ShelfBoard()
+        }
         Shelf("Recently added", recent, { nav.book(it.id) })
         Spacer(Modifier.height(24.dp))
     }

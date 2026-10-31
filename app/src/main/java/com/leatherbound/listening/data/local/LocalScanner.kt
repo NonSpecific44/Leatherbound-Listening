@@ -126,6 +126,7 @@ class LocalScanner(private val context: Context) {
                 sortTitle = title.removePrefix("The ").removePrefix("A "),
                 author = author,
                 narrator = meta(MediaMetadataRetriever.METADATA_KEY_COMPOSER),
+                genres = meta(MediaMetadataRetriever.METADATA_KEY_GENRE)?.split(';', ',', '/')?.map { it.trim() }?.filter { it.isNotEmpty() }.orEmpty(),
                 year = meta(MediaMetadataRetriever.METADATA_KEY_YEAR)?.take(4)?.toIntOrNull(),
                 coverUrl = cover,
                 addedAt = files.maxOf { it.modified },

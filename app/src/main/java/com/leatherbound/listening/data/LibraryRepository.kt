@@ -6,6 +6,8 @@ import com.leatherbound.listening.data.db.AppDatabase
 import com.leatherbound.listening.data.db.BookEntity
 import com.leatherbound.listening.data.db.BookmarkEntity
 import com.leatherbound.listening.data.db.ChapterEntity
+import com.leatherbound.listening.data.db.CollectionBookEntity
+import com.leatherbound.listening.data.db.CollectionEntity
 import com.leatherbound.listening.data.db.DownloadState
 import com.leatherbound.listening.data.db.SourceEntity
 import com.leatherbound.listening.data.db.SourceType
@@ -14,6 +16,7 @@ import com.leatherbound.listening.data.local.LocalScanner
 import com.leatherbound.listening.data.remote.JellyfinClient
 import com.leatherbound.listening.data.remote.PlexClient
 import com.leatherbound.listening.data.remote.RemoteBook
+import com.leatherbound.listening.data.remote.RemoteCatalog
 import com.leatherbound.listening.data.remote.fallbackChapters
 import com.leatherbound.listening.playback.locate
 import kotlinx.coroutines.async
@@ -23,6 +26,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.time.LocalDate
 import java.util.concurrent.ConcurrentHashMap
+
+enum class ServerStatus { CHECKING, ONLINE, OFFLINE, ON_DEVICE }
 
 class LibraryRepository(
     private val context: Context,
@@ -36,6 +41,10 @@ class LibraryRepository(
     val syncing: StateFlow<Boolean> = _syncing
     private val _lastError = MutableStateFlow<String?>(null)
     val lastError: StateFlow<String?> = _lastError
+
+    private val _serverStatus = MutableStateFlow<Map<Long, ServerStatus>>(emptyMap())
+    /** Whether each library's server answers, for the home screen. */
+    val serverStatus: StateFlow<Map<Long, ServerStatus>> = _serverStatus
 
     suspend fun plex() = PlexClient(settings.deviceId())
     suspend fun jellyfin() = JellyfinClient(settings.deviceId())
@@ -62,6 +71,7 @@ class LibraryRepository(
     suspend fun removeSource(source: SourceEntity) {
         dao.booksForSource(source.id).forEach { Downloads.deleteFiles(context, it.id) }
         dao.deleteBookmarksForSource(source.id)
+        dao.replaceCollections(source.id, emptyList(), emptyList())
         dao.deleteBooksForSource(source.id)
         dao.deleteSource(source.id)
         if (source.type == SourceType.LOCAL) {
@@ -142,11 +152,12 @@ class LibraryRepository(
             throw IllegalStateException("Sign-in has expired. Remove this library and add it again.")
         }
         val existing = dao.booksForSource(source.id).associateBy { it.id }
-        val remote: List<RemoteBook> = when (source.type) {
+        val catalog: RemoteCatalog = when (source.type) {
             SourceType.PLEX -> plex().books(source.baseUrl, token, source.libraryId)
             SourceType.JELLYFIN -> jellyfin().books(source.baseUrl, token, source.userId, source.libraryId)
-            SourceType.LOCAL -> scanner.scan(Uri.parse(source.baseUrl), existing.values.associate { it.remoteId to it.scanSignature })
+            SourceType.LOCAL -> RemoteCatalog(scanner.scan(Uri.parse(source.baseUrl), existing.values.associate { it.remoteId to it.scanSignature }))
         }
+        val remote = catalog.books
         val seen = mutableSetOf<String>()
         val changed = remote.mapNotNull { r ->
             val id = bookId(source, r.remoteId)
@@ -162,6 +173,7 @@ class LibraryRepository(
                 seriesName = r.seriesName, seriesIndex = r.seriesIndex,
                 detailsLoaded = r.chapters != null || old?.detailsLoaded == true,
                 scanSignature = r.signature,
+                genres = r.genres.distinct().joinToString(", ").ifEmpty { null },
             )
             Triple(mergeState(book, old, r), r, old)
         }
@@ -181,7 +193,42 @@ class LibraryRepository(
         val gone = existing.keys - seen
         gone.forEach { Downloads.deleteFiles(context, it) }
         if (gone.isNotEmpty()) dao.deleteBooks(gone.toList())
+        saveCollections(source, catalog)
         dao.markSynced(source.id, System.currentTimeMillis())
+    }
+
+    /** Server collections as they are; for folders, each series folder becomes a collection. */
+    private suspend fun saveCollections(source: SourceEntity, catalog: RemoteCatalog) {
+        val books = dao.booksForSource(source.id)
+        val known = books.map { it.id }.toSet()
+        val groups: List<Triple<String, String, List<String>>> = if (source.type == SourceType.LOCAL) {
+            books.filter { it.seriesName != null }.groupBy { it.seriesName!! }.map { (name, list) ->
+                Triple(LocalScanner.sha1(name), name, list.sortedWith(compareBy({ it.seriesIndex ?: 0f }, { it.sortTitle })).map { it.id })
+            }
+        } else {
+            catalog.collections.map { c -> Triple(c.remoteId, c.name, c.bookRemoteIds.map { bookId(source, it) }) }
+        }
+        val collections = groups.map { (remoteId, name, _) -> CollectionEntity("${source.id}:$remoteId", source.id, remoteId, name) }
+        val links = groups.flatMap { (remoteId, _, ids) ->
+            ids.filter { it in known }.distinct().mapIndexed { i, id -> CollectionBookEntity("${source.id}:$remoteId", id, i) }
+        }
+        val nonEmpty = links.map { it.collectionId }.toSet()
+        dao.replaceCollections(source.id, collections.filter { it.id in nonEmpty }, links)
+    }
+
+    /** Pings every library's server in parallel. */
+    suspend fun checkServers() = coroutineScope {
+        val sources = dao.sources()
+        _serverStatus.value = sources.associate { it.id to if (it.type == SourceType.LOCAL) ServerStatus.ON_DEVICE else _serverStatus.value[it.id] ?: ServerStatus.CHECKING }
+        sources.filter { it.type != SourceType.LOCAL }.map { source ->
+            async {
+                val up = when (source.type) {
+                    SourceType.PLEX -> plex().ping(source.baseUrl, source.secret())
+                    else -> jellyfin().ping(source.baseUrl)
+                }
+                _serverStatus.value = _serverStatus.value + (source.id to if (up) ServerStatus.ONLINE else ServerStatus.OFFLINE)
+            }
+        }.awaitAll()
     }
 
     /**
@@ -284,6 +331,23 @@ class LibraryRepository(
         }
     }
 
+    /** Back to "not started": clears position, finished state and history, here and on the server. */
+    suspend fun markUnread(bookId: String) {
+        val book = dao.book(bookId) ?: return
+        dao.resetProgress(bookId)
+        lastPush.remove(bookId)
+        val source = dao.source(book.sourceId) ?: return
+        runCatching {
+            when (source.type) {
+                SourceType.PLEX -> plex().markUnplayed(source.baseUrl, source.secret(), book.remoteId)
+                SourceType.JELLYFIN -> dao.tracks(bookId).forEach {
+                    jellyfin().markUnplayed(source.baseUrl, source.secret(), source.userId, it.remoteId)
+                }
+                SourceType.LOCAL -> Unit
+            }
+        }
+    }
+
     suspend fun setBookSpeed(bookId: String, speed: Float) = dao.setBookSpeed(bookId, speed)
 
     suspend fun addBookmark(bookId: String, positionMs: Long, note: String) =
@@ -316,10 +380,13 @@ class LibraryRepository(
         return dao.listeningList().firstOrNull { it.id != book.id && !it.isFinished }
     }
 
-    /** If you keep this book downloaded, quietly fetch the one after it too. */
+    /**
+     * Once you're 80% through a book, download the one book that comes next (series, else Up Next).
+     * Only ever that one: books further along wait until you're near the end of this one.
+     */
     suspend fun downloadNextIfWanted(book: BookEntity) {
         val s = settings.current()
-        if (!s.autoDownloadNext || book.downloadState != DownloadState.DONE) return
+        if (!s.autoDownloadNext) return
         val next = nextAfter(book) ?: return
         if (next.downloadState != DownloadState.NONE) return
         if (dao.source(next.sourceId)?.type == SourceType.LOCAL) return

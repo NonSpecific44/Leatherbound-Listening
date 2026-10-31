@@ -33,7 +33,20 @@ data class RemoteBook(
     /** Local folders: fingerprint of the files; [unchanged] means "same as last scan, keep what you have". */
     val signature: String? = null,
     val unchanged: Boolean = false,
+    val genres: List<String> = emptyList(),
 )
+
+/** A Plex collection or Jellyfin BoxSet, with its books in the server's order. */
+data class RemoteCollection(val remoteId: String, val name: String, val bookRemoteIds: List<String>)
+
+data class RemoteCatalog(val books: List<RemoteBook>, val collections: List<RemoteCollection> = emptyList())
+
+/** Series = the first collection a book is in, with its position there (1-based). */
+fun seriesIndex(collections: List<RemoteCollection>): Map<String, Pair<String, Float>> {
+    val map = mutableMapOf<String, Pair<String, Float>>()
+    collections.forEach { c -> c.bookRemoteIds.forEachIndexed { i, id -> map.putIfAbsent(id, c.name to (i + 1).toFloat()) } }
+    return map
+}
 
 data class ServerProgress(val positionMs: Long? = null, val updatedAt: Long = 0, val finished: Boolean = false)
 

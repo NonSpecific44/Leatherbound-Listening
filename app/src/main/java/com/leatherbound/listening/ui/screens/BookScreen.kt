@@ -154,6 +154,7 @@ private fun Header(b: BookEntity, position: Long, center: Boolean = false, onAut
 private fun Actions(vm: AppViewModel, b: BookEntity, isLocal: Boolean, position: Long) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
         val available = com.leatherbound.listening.ui.components.LocalAvailability.current.canPlay(b)
+        val actions = com.leatherbound.listening.ui.components.LocalBookActions.current
         Button(onClick = { vm.play(b.id) }, enabled = available, modifier = Modifier.fillMaxWidth().widthIn(max = 360.dp)) {
             Icon(Icons.Filled.PlayArrow, null)
             Spacer(Modifier.width(8.dp))
@@ -175,12 +176,12 @@ private fun Actions(vm: AppViewModel, b: BookEntity, isLocal: Boolean, position:
                 DownloadState.NONE -> OutlinedButton(onClick = { vm.download(b.id) }) {
                     Icon(Icons.Filled.Download, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Download")
                 }
-                DownloadState.QUEUED, DownloadState.DOWNLOADING -> OutlinedButton(onClick = { vm.removeDownload(b.id) }) {
+                DownloadState.QUEUED, DownloadState.DOWNLOADING -> OutlinedButton(onClick = { actions?.removeDownload?.invoke(b.id) }) {
                     CircularProgressIndicator(progress = { b.downloadProgress }, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                     Spacer(Modifier.width(6.dp))
                     Text(if (b.downloadState == DownloadState.QUEUED) "Waiting…" else "${(b.downloadProgress * 100).toInt()}% · Cancel")
                 }
-                DownloadState.DONE -> OutlinedButton(onClick = { vm.removeDownload(b.id) }) {
+                DownloadState.DONE -> OutlinedButton(onClick = { actions?.removeDownload?.invoke(b.id) }) {
                     Icon(Icons.Filled.Delete, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Remove download")
                 }
                 DownloadState.FAILED -> OutlinedButton(onClick = { vm.download(b.id) }) {

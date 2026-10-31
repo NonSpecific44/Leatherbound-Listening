@@ -147,7 +147,10 @@ class PlaybackService : MediaLibraryService() {
             delay(1000)
             if (player.isPlaying) {
                 unsavedListeningMs += 1000
-                if (++seconds % 10 == 0) saveProgress(forcePush = false)
+                if (++seconds % 10 == 0) {
+                    saveProgress(forcePush = false)
+                    maybeDownloadNext()
+                }
                 showChapterTitle()
             }
         }
@@ -197,6 +200,18 @@ class PlaybackService : MediaLibraryService() {
             }
         }
         applySpeed()
+    }
+
+    /** Books whose successor has already been considered for auto-download this session. */
+    private val nextDownloadChecked = mutableSetOf<String>()
+
+    /** At 80% through a book, fetch the next one (just that one) so it's ready offline. */
+    private fun maybeDownloadNext() {
+        val bookId = player.currentBookId ?: return
+        val duration = player.bookDurationMs
+        if (duration <= 0 || bookId in nextDownloadChecked) return
+        if (player.bookPositionMs < duration * NEXT_DOWNLOAD_AT) return
+        nextDownloadChecked += bookId
         appScope.launch { dao.book(bookId)?.let { repository.downloadNextIfWanted(it) } }
     }
 
@@ -563,6 +578,7 @@ class PlaybackService : MediaLibraryService() {
 
     companion object {
         const val SKIP_MS = 15_000L
+        private const val NEXT_DOWNLOAD_AT = 0.8
         const val SLEEP_END_OF_CHAPTER = -1
         const val EXTRA_SLEEP_LEFT_MS = "sleepLeftMs"
         const val EXTRA_SLEEP_CHAPTER_END = "sleepChapterEnd"

@@ -75,6 +75,7 @@ class BookActions(
     val play: (String) -> Unit,
     val toggleList: (String) -> Unit,
     val setFinished: (String, Boolean) -> Unit,
+    val markUnread: (String) -> Unit,
     val download: (String) -> Unit,
     val removeDownload: (String) -> Unit,
 )
@@ -99,10 +100,16 @@ private fun BookMenu(book: BookEntity, expanded: Boolean, onDismiss: () -> Unit)
             leadingIcon = { Icon(if (book.onListeningList) Icons.Filled.BookmarkRemove else Icons.Filled.BookmarkAdd, null) },
             onClick = { actions.toggleList(book.id); onDismiss() },
         )
-        DropdownMenuItem(
-            text = { Text(if (book.isFinished) "Mark as unfinished" else "Mark as finished") },
-            leadingIcon = { Icon(if (book.isFinished) Icons.Filled.RadioButtonUnchecked else Icons.Filled.CheckCircle, null) },
-            onClick = { actions.setFinished(book.id, !book.isFinished); onDismiss() },
+        if (!book.isFinished) DropdownMenuItem(
+            text = { Text("Mark as finished") },
+            leadingIcon = { Icon(Icons.Filled.CheckCircle, null) },
+            onClick = { actions.setFinished(book.id, true); onDismiss() },
+        )
+        // Only offered once there's something to clear.
+        if (book.hasHistory) DropdownMenuItem(
+            text = { Text("Mark as unread") },
+            leadingIcon = { Icon(Icons.Filled.RadioButtonUnchecked, null) },
+            onClick = { actions.markUnread(book.id); onDismiss() },
         )
         if (book.sourceId !in availability.localSources) {
             if (book.downloadState == DownloadState.NONE || book.downloadState == DownloadState.FAILED) DropdownMenuItem(

@@ -39,6 +39,7 @@ import java.time.Instant
     @SerialName("Chapters") val chapters: List<JfChapter> = emptyList(),
     @SerialName("People") val people: List<JfPerson> = emptyList(),
     @SerialName("UserData") val userData: JfUserData? = null,
+    @SerialName("Genres") val genres: List<String> = emptyList(),
 )
 
 @Serializable private data class JfNamed(@SerialName("Name") val name: String = "")
@@ -90,16 +91,24 @@ class JellyfinClient(private val deviceId: String) {
             .filter { it.collectionType in setOf("books", "music", null) }
             .map { RemoteLibrary(it.id, it.name) }
 
-    suspend fun books(base: String, token: String, userId: String, libraryId: String): List<RemoteBook> = coroutineScope {
-        val seriesJob = async { runCatching { series(base, token, userId) }.getOrDefault(emptyMap()) }
+    suspend fun books(base: String, token: String, userId: String, libraryId: String): RemoteCatalog = coroutineScope {
+        val setsJob = async { runCatching { boxSets(base, token, userId) }.getOrDefault(emptyList()) }
         val files = items(
             base, token,
             "/Users/$userId/Items?ParentId=$libraryId&Recursive=true&IncludeItemTypes=AudioBook,Audio" +
-                "&Fields=Overview,DateCreated,Chapters,People,SortName,ParentId,ProductionYear&EnableImageTypes=Primary&EnableUserData=true",
+                "&Fields=Overview,DateCreated,Chapters,People,SortName,ParentId,ProductionYear,Genres&EnableImageTypes=Primary&EnableUserData=true",
         )
-        val series = seriesJob.await()
+        val groups = files.groupBy { it.albumId ?: it.album?.let { album -> "${it.parentId}|$album" } ?: it.id }
+        // A BoxSet can list a book by its album or by one of its files; map both to the book.
+        val bookOf = buildMap {
+            groups.forEach { (key, parts) -> put(key, key); parts.forEach { put(it.id, key) } }
+        }
+        val collections = setsJob.await().map { (id, name, children) ->
+            RemoteCollection(id, name, children.mapNotNull { bookOf[it] }.distinct())
+        }.filter { it.bookRemoteIds.isNotEmpty() }
+        val series = seriesIndex(collections)
 
-        files.groupBy { it.albumId ?: it.album?.let { album -> "${it.parentId}|$album" } ?: it.id }
+        val books = groups
             .map { (groupKey, group) ->
                 val parts = group.sortedWith(compareBy({ it.parentIndexNumber ?: 0 }, { it.indexNumber ?: 0 }, { it.sortName ?: it.name }))
                 val first = parts.first()
@@ -122,7 +131,7 @@ class JellyfinClient(private val deviceId: String) {
                     "Primary" in first.imageTags -> "$base/Items/${first.id}/Images/Primary?maxHeight=800&api_key=$token"
                     else -> null
                 }
-                val seriesEntry = series[groupKey] ?: parts.firstNotNullOfOrNull { series[it.id] }
+                val seriesEntry = series[groupKey]
                 RemoteBook(
                     remoteId = groupKey,
                     title = title,
@@ -146,19 +155,31 @@ class JellyfinClient(private val deviceId: String) {
                             lastPlayedAt = data?.lastPlayedDate?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() } ?: 0,
                         )
                     }),
+                    genres = first.genres,
                 )
             }
+        RemoteCatalog(books, collections)
     }
 
-    /** item or album id -> (collection name, 1-based position). Collections ("BoxSet") act as series. */
-    private suspend fun series(base: String, token: String, userId: String): Map<String, Pair<String, Float>> = coroutineScope {
+    /** (id, name, child item ids in order) for every BoxSet. */
+    private suspend fun boxSets(base: String, token: String, userId: String): List<Triple<String, String, List<String>>> = coroutineScope {
         items(base, token, "/Users/$userId/Items?IncludeItemTypes=BoxSet&Recursive=true").map { set ->
             async {
-                items(base, token, "/Users/$userId/Items?ParentId=${set.id}&SortBy=ProductionYear,SortName")
-                    .mapIndexed { i, child -> child.id to (set.name to (i + 1).toFloat()) }
+                Triple(set.id, set.name, items(base, token, "/Users/$userId/Items?ParentId=${set.id}&SortBy=ProductionYear,SortName").map { it.id })
             }
-        }.awaitAll().flatten().toMap()
+        }.awaitAll()
     }
+
+    /** Clears played state and position for one file. */
+    suspend fun markUnplayed(base: String, token: String, userId: String, itemId: String) {
+        Http.send(request("$base/Users/$userId/PlayedItems/$itemId", token).delete().build())
+        reportProgress(base, token, itemId, 0, playing = false)
+    }
+
+    /** True if the server answers at all. */
+    suspend fun ping(base: String): Boolean = runCatching {
+        Http.send(request("$base/System/Info/Public", null).build(), Http.probeClient); true
+    }.getOrDefault(false)
 
     /** Reports your place in one file. Pausing sends "stopped", which Jellyfin always persists. */
     suspend fun reportProgress(base: String, token: String, itemId: String, positionMs: Long, playing: Boolean) {

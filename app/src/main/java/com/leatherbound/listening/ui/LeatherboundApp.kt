@@ -62,6 +62,12 @@ import com.leatherbound.listening.ui.components.BookCover
 import androidx.compose.runtime.CompositionLocalProvider
 import com.leatherbound.listening.ui.components.LocalAvailability
 import com.leatherbound.listening.ui.components.BookActions
+import com.leatherbound.listening.ui.components.AppTopBar
+import com.leatherbound.listening.ui.components.ConfirmDialog
+import com.leatherbound.listening.ui.screens.CollectionScreen
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.runtime.mutableStateOf
 import com.leatherbound.listening.ui.components.LocalBookActions
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.runtime.mutableFloatStateOf
@@ -83,7 +89,7 @@ import com.leatherbound.listening.ui.theme.Leather
 import com.leatherbound.listening.ui.theme.LocalWideLayout
 
 private enum class Tab(val route: String, val label: String, val icon: ImageVector) {
-    Resume("home", "Resume", Icons.Filled.AutoStories),
+    Home("home", "Home", Icons.Filled.AutoStories),
     Library("library", "Library", Icons.AutoMirrored.Filled.MenuBook),
     UpNext("list", "Up Next", Icons.Filled.Bookmarks),
     Stats("stats", "Stats", Icons.Filled.Insights),
@@ -95,7 +101,9 @@ class Navigator(private val nav: NavHostController) {
     fun player() = nav.navigate("player") { launchSingleTop = true }
     fun author(name: String) = nav.navigate("author/${android.net.Uri.encode(name)}")
     fun series(name: String) = nav.navigate("series/${android.net.Uri.encode(name)}")
-    fun downloads() = nav.navigate("downloads")
+    fun downloads() = nav.navigate("downloads") { launchSingleTop = true }
+    fun collection(id: String) = nav.navigate("collection/${android.net.Uri.encode(id)}")
+    fun libraryCollections() = tab("library")
     fun settings() = tab("settings")
     fun back() = nav.popBackStack()
     fun tab(route: String) = nav.navigate(route) {
@@ -116,7 +124,7 @@ fun LeatherboundRoot(vm: AppViewModel) {
     val availability by vm.availability.collectAsStateWithLifecycle()
 
     val content: @Composable (Modifier) -> Unit = { modifier ->
-        NavHost(nav, startDestination = Tab.Resume.route, modifier = modifier) {
+        NavHost(nav, startDestination = Tab.Home.route, modifier = modifier) {
             composable("home") { HomeScreen(vm, navigator) }
             composable("library") { LibraryScreen(vm, navigator) }
             composable("list") { ListeningListScreen(vm, navigator) }
@@ -127,25 +135,57 @@ fun LeatherboundRoot(vm: AppViewModel) {
             composable("author/{name}") { e -> AuthorScreen(vm, navigator, android.net.Uri.decode(e.arguments?.getString("name").orEmpty())) }
             composable("series/{name}") { e -> SeriesScreen(vm, navigator, android.net.Uri.decode(e.arguments?.getString("name").orEmpty())) }
             composable("downloads") { DownloadsScreen(vm, navigator) }
+            composable("collection/{id}") { e -> CollectionScreen(vm, navigator, android.net.Uri.decode(e.arguments?.getString("id").orEmpty())) }
         }
     }
 
+    // Deleting a download always goes through one confirmation, wherever it was asked for.
+    var confirmDelete by remember { mutableStateOf<String?>(null) }
     val bookActions = remember(vm) {
         BookActions(
             play = { vm.play(it) },
             toggleList = { vm.toggleList(it) },
             setFinished = { id, done -> vm.setFinished(id, done) },
+            markUnread = { vm.markUnread(it) },
             download = { vm.download(it) },
-            removeDownload = { vm.removeDownload(it) },
+            removeDownload = { confirmDelete = it },
         )
     }
+    confirmDelete?.let { id ->
+        val books by vm.books.collectAsStateWithLifecycle()
+        val downloads by vm.downloads.collectAsStateWithLifecycle()
+        val book = books.firstOrNull { it.id == id }
+        val size = downloads.firstOrNull { it.book.id == id }?.bytes ?: 0L
+        val finished = book?.downloadState == com.leatherbound.listening.data.db.DownloadState.DONE
+        val context = androidx.compose.ui.platform.LocalContext.current
+        ConfirmDialog(
+            title = if (finished) "Delete download?" else "Cancel download?",
+            message = (if (finished) "Delete the downloaded copy of “${book?.title}”" + (if (size > 0) " (${android.text.format.Formatter.formatShortFileSize(context, size)})" else "") + " from this phone?"
+            else "Stop downloading “${book?.title}” and delete what has been saved so far?") +
+                " Your listening progress is kept, and you can still stream it or download it again.",
+            confirm = if (finished) "Delete" else "Cancel download",
+            onConfirm = { vm.removeDownload(id) },
+            onDismiss = { confirmDelete = null },
+        )
+    }
+
+    // The top bar's downloads button shows what's in flight.
+    val downloads by vm.downloads.collectAsStateWithLifecycle()
+    val active = downloads.filter {
+        it.book.downloadState == com.leatherbound.listening.data.db.DownloadState.QUEUED ||
+            it.book.downloadState == com.leatherbound.listening.data.db.DownloadState.DOWNLOADING
+    }
+    val overall = active.takeIf { it.isNotEmpty() }?.map { it.book.downloadProgress }?.average()?.toFloat()?.takeIf { it > 0f }
+    val topBar: @Composable () -> Unit = {
+        if (!onPlayer) AppTopBar(active.size, overall, onDownloads = { navigator.downloads() }, onLogo = { navigator.tab(Tab.Home.route) })
+    }
+    // The bar handles the status bar, so pages below it shouldn't pad for it again.
+    val body: @Composable (PaddingValues) -> Unit = { padding -> content(Modifier.padding(padding).consumeWindowInsets(padding)) }
     CompositionLocalProvider(LocalAvailability provides availability, LocalBookActions provides bookActions) {
     if (wide) {
         Row(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
             if (!onPlayer) {
-                NavigationRail(containerColor = MaterialTheme.colorScheme.surfaceContainer, header = {
-                    Icon(painterResource(R.drawable.app_logo), null, tint = androidx.compose.ui.graphics.Color.Unspecified, modifier = Modifier.padding(top = 12.dp).size(44.dp))
-                }) {
+                NavigationRail(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
                     Spacer(Modifier.height(12.dp))
                     Tab.entries.forEach { tab ->
                         NavigationRailItem(
@@ -160,11 +200,13 @@ fun LeatherboundRoot(vm: AppViewModel) {
             }
             Scaffold(
                 modifier = Modifier.weight(1f),
+                topBar = topBar,
                 bottomBar = { if (!onPlayer) MiniPlayer(vm, navigator) },
-            ) { padding -> content(Modifier.padding(padding)) }
+            ) { padding -> body(padding) }
         }
     } else {
         Scaffold(
+            topBar = topBar,
             bottomBar = {
                 if (!onPlayer) Column {
                     MiniPlayer(vm, navigator)
@@ -182,7 +224,7 @@ fun LeatherboundRoot(vm: AppViewModel) {
                 }
             },
             contentWindowInsets = if (onPlayer) WindowInsets(0) else androidx.compose.material3.ScaffoldDefaults.contentWindowInsets,
-        ) { padding -> content(Modifier.padding(padding)) }
+        ) { padding -> body(padding) }
     }
     }
 }

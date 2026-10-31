@@ -13,6 +13,7 @@ import com.leatherbound.listening.data.ThemeMode
 import com.leatherbound.listening.data.authorSortKey
 import com.leatherbound.listening.data.db.BookEntity
 import com.leatherbound.listening.data.db.ChapterEntity
+import com.leatherbound.listening.data.db.CollectionEntity
 import com.leatherbound.listening.data.db.ListeningDayEntity
 import com.leatherbound.listening.data.db.SourceEntity
 import com.leatherbound.listening.data.db.SourceType
@@ -54,6 +55,11 @@ data class Stats(
     val finishedThisYearBooks: List<BookEntity> = emptyList(),
 )
 
+/** A collection with its books in order. */
+data class CollectionView(val collection: CollectionEntity, val books: List<BookEntity>)
+
+enum class LibraryView { BOOKS, COLLECTIONS }
+
 /** A downloaded book and the space it takes. */
 data class DownloadedBook(val book: BookEntity, val bytes: Long)
 
@@ -91,10 +97,35 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     val query = MutableStateFlow("")
     val filter = MutableStateFlow(LibraryFilter.ALL)
+    val libraryView = MutableStateFlow(LibraryView.BOOKS)
+
+    val collections: StateFlow<List<CollectionView>> =
+        combine(dao.observeCollections(), dao.observeCollectionBooks(), books) { cols, links, all ->
+            val byId = all.associateBy { it.id }
+            val members = links.groupBy { it.collectionId }
+            cols.mapNotNull { c ->
+                members[c.id].orEmpty().sortedBy { it.position }.mapNotNull { byId[it.bookId] }
+                    .takeIf { it.isNotEmpty() }?.let { CollectionView(c, it) }
+            }
+        }.state(emptyList())
+
+    /** Collections whose name matches the library search. */
+    val matchingCollections: StateFlow<List<CollectionView>> = combine(collections, query) { cols, q ->
+        if (q.isBlank()) emptyList() else cols.filter { it.collection.name.contains(q.trim(), true) }
+    }.state(emptyList())
+
+    fun collection(id: String): Flow<CollectionView?> = collections.map { list -> list.firstOrNull { it.collection.id == id } }
+
+    val serverStatus = repo.serverStatus
+    fun checkServers() = viewModelScope.launch { repo.checkServers() }
+
+    /** Live speed and size for downloads in progress. */
+    val transfers = Downloads.activeTransfers
 
     val library: StateFlow<List<BookEntity>> = combine(books, settings, query, filter) { all, s, q, f ->
         val filtered = all.filter { b ->
-            (q.isBlank() || b.title.contains(q, true) || b.author.contains(q, true) || b.seriesName?.contains(q, true) == true) &&
+            (q.isBlank() || b.title.contains(q, true) || b.author.contains(q, true) || b.seriesName?.contains(q, true) == true ||
+                b.genres?.contains(q, true) == true) &&
                 when (f) {
                     LibraryFilter.ALL -> true
                     LibraryFilter.UNREAD -> b.positionMs == 0L && !b.isFinished
@@ -111,6 +142,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             LibrarySort.YEAR -> filtered.sortedWith(compareByDescending<BookEntity> { it.year ?: 0 }.thenBy { it.sortTitle.lowercase() })
             LibrarySort.SERIES -> filtered.sortedWith(compareBy({ it.seriesName == null }, { it.seriesName.orEmpty().lowercase() }, { it.seriesIndex ?: 0f }, { it.sortTitle.lowercase() }))
             LibrarySort.LENGTH -> filtered.sortedByDescending { it.durationMs }
+            // Books with no genre go last.
+            LibrarySort.GENRE -> filtered.sortedWith(compareBy({ it.primaryGenre == null }, { it.primaryGenre?.lowercase() }, { authorSortKey(it.author) }, { it.sortTitle.lowercase() }))
         }
         if (s.sortDescending) sorted.reversed() else sorted
     }.state(emptyList())
@@ -196,6 +229,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun setDefaultSpeed(v: Float) = viewModelScope.launch { c.settings.setPlaybackSpeed(v) }
 
     fun addBookmark(note: String) = player.addBookmark(note)
+    fun markUnread(id: String) = viewModelScope.launch {
+        player.stopIfPlaying(id)
+        repo.markUnread(id)
+    }
     fun deleteBookmark(id: Long) = viewModelScope.launch { repo.deleteBookmark(id) }
     fun setSleepTimer(minutes: Int) = player.setSleepTimer(minutes)
     fun removeFinishedDownloads() = viewModelScope.launch {

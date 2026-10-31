@@ -8,6 +8,9 @@ import com.leatherbound.listening.data.remote.PlexClient
 import com.leatherbound.listening.data.remote.PlexConnection
 import com.leatherbound.listening.data.remote.TrackProgress
 import com.leatherbound.listening.data.remote.bookProgress
+import com.leatherbound.listening.data.remote.RemoteCollection
+import com.leatherbound.listening.data.remote.firstName
+import com.leatherbound.listening.data.remote.seriesIndex
 import com.leatherbound.listening.playback.Rewind
 import com.leatherbound.listening.playback.locate
 import org.junit.Assert.assertEquals
@@ -104,5 +107,22 @@ class LogicTest {
             ),
             order,
         )
+    }
+
+    @Test fun seriesComesFromTheFirstCollectionABookIsIn() {
+        val map = seriesIndex(
+            listOf(
+                RemoteCollection("1", "Discworld", listOf("a", "b", "c")),
+                RemoteCollection("2", "Favourites", listOf("c", "d")),
+            )
+        )
+        assertEquals("Discworld" to 3f, map["c"])
+        assertEquals("Favourites" to 2f, map["d"])
+        assertNull(map["z"])
+    }
+
+    @Test fun greetingUsesFirstName() {
+        assertEquals("Fergus", firstName("Fergus Eaton"))
+        assertEquals("NonSpecific44", firstName("  NonSpecific44 "))
     }
 }

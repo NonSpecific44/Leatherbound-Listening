@@ -25,6 +25,7 @@ enum class LibrarySort(val label: String) {
     YEAR("Year"),
     SERIES("Series"),
     LENGTH("Length"),
+    GENRE("Genre"),
 }
 
 data class AppSettings(

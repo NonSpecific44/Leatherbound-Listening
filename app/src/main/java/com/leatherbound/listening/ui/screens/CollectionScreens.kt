@@ -51,6 +51,18 @@ fun SeriesScreen(vm: AppViewModel, nav: Navigator, series: String) {
     }
 }
 
+/** A Plex/Jellyfin collection (or series folder), books in the collection's own order. */
+@Composable
+fun CollectionScreen(vm: AppViewModel, nav: Navigator, id: String) {
+    val collection by remember(id) { vm.collection(id) }.collectAsState(null)
+    val c = collection ?: return
+    val authors = c.books.map { it.author }.distinct()
+    val by = if (authors.size <= 3) authors.joinToString(", ") else "${authors.size} authors"
+    CollectionPage(nav, c.collection.name, listOf(by, summary(c.books)).filter { it.isNotBlank() }.joinToString(" · ")) {
+        section(null, c.books)
+    }
+}
+
 private fun summary(books: List<BookEntity>): String {
     val finished = books.count { it.isFinished }
     return "${books.size} ${if (books.size == 1) "book" else "books"} · ${formatDuration(books.sumOf { it.durationMs })}" +

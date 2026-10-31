@@ -55,7 +55,12 @@ data class BookEntity(
     val playbackSpeed: Float? = null,
     /** Local folders: fingerprint of the files, so unchanged books are not re-read on rescan. */
     val scanSignature: String? = null,
+    /** Comma-separated, as the server lists them; the first is the one used for sorting. */
+    val genres: String? = null,
 ) {
+    val primaryGenre: String? get() = genres?.substringBefore(',')?.trim()?.takeIf { it.isNotEmpty() }
+    /** Has this book been started, finished, or played at all? */
+    val hasHistory: Boolean get() = positionMs > 0 || isFinished || lastPlayedAt > 0
     val progress: Float get() = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
     val inProgress: Boolean get() = positionMs > 0 && !isFinished
     val onListeningList: Boolean get() = listPosition != null
@@ -84,6 +89,22 @@ data class ChapterEntity(
     val title: String,
     val startMs: Long,
     val endMs: Long,
+)
+
+/** A Plex collection, Jellyfin BoxSet, or (for folders) a series folder. */
+@Entity(tableName = "collections", indices = [Index("sourceId")])
+data class CollectionEntity(
+    @PrimaryKey val id: String,
+    val sourceId: Long,
+    val remoteId: String,
+    val name: String,
+)
+
+@Entity(tableName = "collection_books", primaryKeys = ["collectionId", "bookId"], indices = [Index("bookId")])
+data class CollectionBookEntity(
+    val collectionId: String,
+    val bookId: String,
+    val position: Int,
 )
 
 @Entity(tableName = "bookmarks", indices = [Index("bookId")])

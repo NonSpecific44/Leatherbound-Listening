@@ -7,7 +7,7 @@ A self-made audiobook player for Plex and Jellyfin, with a bound-book look: parc
 | | |
 |---|---|
 | **Sources** | Plex (sign in with your Plex account, or enter a URL + token), Jellyfin (username/password), and folders on the device (Storage Access Framework) |
-| **Library** | Metadata, chapters and covers are cached in a local Room database. Sort by recently added, recently played, title, author (surname-aware), year, series, length. Filter by unread, in progress, finished, downloaded. Grid or list. |
+| **Library** | Metadata, chapters and covers are cached in a local Room database. Sort by recently added, recently played, title, author (surname-aware), year, series, length, genre. Filter by unread, in progress, finished, downloaded. Grid or list. |
 | **Chapters** | Plex embedded chapters, Jellyfin chapters, M4B chapters on local files (Nero `chpl` and QuickTime chapter tracks), or one chapter per file. |
 | **Playback** | Media3/ExoPlayer in a foreground service. Skip back and forward 15 s, crossing file boundaries. Resuming after a pause rewinds 5 s (adjustable 0–30 s), and opening the app rewinds the last book 5 s. Speeds from 0.75× to 2.5×. |
 | **System controls** | Notification, lock screen and Bluetooth controls, with ±15 s in place of previous/next. |
@@ -28,6 +28,8 @@ A self-made audiobook player for Plex and Jellyfin, with a bound-book look: parc
 | **Widget** | Home-screen widget with cover, ±15 s and play/pause. |
 | **Stats goal** | Yearly reading goal ring and a shelf of this year's finished books. |
 | **Security** | Server tokens are encrypted with an Android Keystore key and kept out of stored URLs. Downloads and cached covers are excluded from backups. |
+| **Collections** | Plex and Jellyfin collections (and series folders on the phone) on Home, in the Library and in search. |
+| **At a glance** | Top bar with the logo and an animated downloads button; server online status on Home. |
 | **Adaptive** | Phones get a bottom bar. Tablets and foldables get a navigation rail, wider grids, a side-by-side book page, and a two-page player spread with the table of contents on the right page. |
 
 ## Gestures
@@ -41,7 +43,7 @@ A self-made audiobook player for Plex and Jellyfin, with a bound-book look: parc
 | Mini player | Swipe up (or tap) | Open the player |
 | Resume, Library | Pull down | Sync with your servers |
 | Up Next | Swipe a book left | Remove it from the list |
-| Any book cover or row | Long-press | Quick menu: play, Up Next, mark finished, download |
+| Any book cover or row | Long-press | Quick menu: play, Up Next, mark finished or unread, download |
 
 ## Building
 

@@ -71,6 +71,26 @@ interface LibraryDao {
     @Query("UPDATE books SET playbackSpeed = :speed WHERE id = :id") suspend fun setBookSpeed(id: String, speed: Float?)
     @Query("SELECT * FROM books WHERE downloadState != 'NONE' ORDER BY title") fun observeDownloads(): Flow<List<BookEntity>>
 
+    // Collections
+    @Query("SELECT * FROM collections ORDER BY name COLLATE NOCASE") fun observeCollections(): Flow<List<CollectionEntity>>
+    @Query("SELECT * FROM collection_books ORDER BY position") fun observeCollectionBooks(): Flow<List<CollectionBookEntity>>
+    @Query("DELETE FROM collections WHERE sourceId = :sourceId") suspend fun deleteCollectionsForSource(sourceId: Long)
+    @Query("DELETE FROM collection_books WHERE collectionId IN (SELECT id FROM collections WHERE sourceId = :sourceId)")
+    suspend fun deleteCollectionBooksForSource(sourceId: Long)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertCollections(collections: List<CollectionEntity>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertCollectionBooks(links: List<CollectionBookEntity>)
+
+    @Transaction
+    suspend fun replaceCollections(sourceId: Long, collections: List<CollectionEntity>, links: List<CollectionBookEntity>) {
+        deleteCollectionBooksForSource(sourceId)
+        deleteCollectionsForSource(sourceId)
+        insertCollections(collections)
+        insertCollectionBooks(links)
+    }
+
+    @Query("UPDATE books SET positionMs = 0, lastPlayedAt = 0, isFinished = 0, finishedAt = 0 WHERE id = :id")
+    suspend fun resetProgress(id: String)
+
     // Bookmarks
     @Query("SELECT * FROM bookmarks WHERE bookId = :bookId ORDER BY positionMs") fun observeBookmarks(bookId: String): Flow<List<BookmarkEntity>>
     @Insert suspend fun insertBookmark(bookmark: BookmarkEntity): Long

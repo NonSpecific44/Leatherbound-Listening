@@ -5,6 +5,20 @@ All notable changes to Leatherbound Listening. Add new entries under **Unrelease
 
 ## [Unreleased]
 
+### Added
+- Top bar on every page with the app logo (tap for Home) and a downloads button. It animates, shows overall progress and counts queued books while downloads run; tap it for the Downloads page
+- Server status on the Home screen: a chip per library showing Online, Offline or On this phone, rechecked every minute and when your connection changes
+- Collections: Plex collections, Jellyfin collections and series folders on the phone, on a Home shelf, as a Books / Collections switch in the Library, and on their own page
+- Library search also finds collections (shown above the matching books) and genres
+- Sort the library by genre, with a heading for each genre
+- "Mark as unread" in the long-press menu, for books with progress or history. It clears progress on Plex/Jellyfin too
+- Downloads page shows speed, size so far and total size, time left and which file is downloading, with in-progress, failed and downloaded sections
+
+### Changed
+- The "Resume" tab is now called "Home"
+- Automatic downloads fetch only the next book, and only once you're 80% through the current one
+- Deleting or cancelling a download, and "Remove finished", now ask for confirmation first
+
 ## [1.0.0] - 2026-10-31
 
 First release.
