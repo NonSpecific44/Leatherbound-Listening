@@ -7,7 +7,10 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.leatherbound.listening.container
 import com.leatherbound.listening.data.AppSettings
+import com.leatherbound.listening.data.Backup
 import com.leatherbound.listening.data.Downloads
+import com.leatherbound.listening.data.TokenVault
+import com.leatherbound.listening.data.Updates
 import com.leatherbound.listening.data.LibrarySort
 import com.leatherbound.listening.data.ThemeMode
 import com.leatherbound.listening.data.authorSortKey
@@ -61,6 +64,19 @@ data class CollectionView(val collection: CollectionEntity, val books: List<Book
 
 enum class LibraryView { BOOKS, COLLECTIONS }
 
+/** The update check: in Settings it shows as a status line; Available and Downloading also show a prompt. */
+sealed interface UpdateState {
+    data object Idle : UpdateState
+    data object Checking : UpdateState
+    data class UpToDate(val version: String) : UpdateState
+    data class Available(val release: Updates.Release) : UpdateState
+    data class Downloading(val release: Updates.Release, val progress: Float) : UpdateState
+    data class Failed(val message: String) : UpdateState
+}
+
+/** A place downloads can go, for Settings. */
+data class StorageChoice(val path: String, val label: String, val freeBytes: Long)
+
 /** A downloaded book and the space it takes. */
 data class DownloadedBook(val book: BookEntity, val bytes: Long)
 
@@ -92,7 +108,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     val downloads: StateFlow<List<DownloadedBook>> = dao.observeDownloads().map { list ->
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            list.map { b -> DownloadedBook(b, Downloads.dir(getApplication(), b.id).walkTopDown().filter { it.isFile }.sumOf { it.length() }) }
+            list.map { b -> DownloadedBook(b, Downloads.bytesUsed(getApplication(), b.id)) }
         }
     }.state(emptyList())
 
@@ -241,6 +257,122 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun setHomeLayout(v: com.leatherbound.listening.data.HomeLayout) = viewModelScope.launch { c.settings.setHomeLayout(v) }
     fun setHiddenGenres(v: Set<String>) = viewModelScope.launch { c.settings.setHiddenGenres(v) }
     fun setDefaultSpeed(v: Float) = viewModelScope.launch { c.settings.setPlaybackSpeed(v) }
+    fun setLamplightAtNight(v: Boolean) = viewModelScope.launch { c.settings.setLamplightAtNight(v) }
+    fun setNightHours(start: Int, end: Int) = viewModelScope.launch { c.settings.setNightHours((start + 24) % 24, (end + 24) % 24) }
+    fun setDownloadRoot(path: String) = viewModelScope.launch { c.settings.setDownloadRoot(path) }
+
+    fun storageChoices(): List<StorageChoice> = Downloads.roots(getApplication()).map {
+        StorageChoice(it.path, Downloads.label(getApplication(), it), it.usableSpace)
+    }
+
+    /** Positions, finished books and so on that are waiting for a connection to reach the server. */
+    val pendingSync = repo.pendingCount.state(0)
+
+    // ---------------- Updates ----------------
+
+    val update = MutableStateFlow<UpdateState>(UpdateState.Idle)
+    private var lastUpdateCheck = 0L
+    private var updateJob: Job? = null
+
+    fun setUpdateToken(token: String) = viewModelScope.launch {
+        c.settings.setUpdateToken(token)
+        update.value = UpdateState.Idle
+        if (token.isNotBlank()) checkForUpdate(manual = true)
+    }
+
+    /**
+     * Asks GitHub for the latest release. Automatic checks (on opening the app) run at most every
+     * six hours, stay quiet on errors, and don't offer a version you chose to skip.
+     */
+    fun checkForUpdate(manual: Boolean) {
+        if (updateJob?.isActive == true) return
+        updateJob = viewModelScope.launch {
+            val s = c.settings.current()
+            val token = TokenVault.decrypt(s.updateToken)
+            if (token.isEmpty()) {
+                if (manual) update.value = UpdateState.Failed("Add a GitHub token first.")
+                return@launch
+            }
+            val now = System.currentTimeMillis()
+            if (!manual && now - lastUpdateCheck < 6 * 3_600_000L) return@launch
+            lastUpdateCheck = now
+            if (manual) update.value = UpdateState.Checking
+            val current = Updates.installedVersion(getApplication())
+            runCatching { Updates.latest(token) }.onSuccess { release ->
+                update.value = when {
+                    release != null && Updates.isNewer(release.version, current) && (manual || release.version != s.skippedVersion) ->
+                        UpdateState.Available(release)
+                    manual -> UpdateState.UpToDate(current)
+                    else -> update.value
+                }
+            }.onFailure { if (manual) update.value = UpdateState.Failed(it.message ?: "Update check failed") }
+        }
+    }
+
+    /** Downloads the APK and opens Android's installer. The first time, Android asks you to allow installs from this app. */
+    fun installUpdate(release: Updates.Release) {
+        val app = getApplication<Application>()
+        if (!Updates.canInstall(app)) {
+            app.startActivity(Updates.allowInstallsIntent(app))
+            return
+        }
+        updateJob?.cancel()
+        updateJob = viewModelScope.launch {
+            update.value = UpdateState.Downloading(release, 0f)
+            runCatching {
+                val token = TokenVault.decrypt(c.settings.current().updateToken)
+                Updates.download(app, release, token) { update.value = UpdateState.Downloading(release, it) }
+            }.onSuccess { apk ->
+                update.value = UpdateState.Available(release)
+                app.startActivity(Updates.installIntent(app, apk))
+            }.onFailure {
+                if (it !is kotlinx.coroutines.CancellationException) update.value = UpdateState.Failed(it.message ?: "Download failed")
+            }
+        }
+    }
+
+    fun skipUpdate(version: String) = viewModelScope.launch {
+        c.settings.setSkippedVersion(version)
+        update.value = UpdateState.Idle
+    }
+
+    fun dismissUpdate() {
+        updateJob?.cancel()
+        update.value = UpdateState.Idle
+    }
+
+    // ---------------- Backup ----------------
+
+    /** The result of the last backup or restore, shown once in Settings. */
+    val backupMessage = MutableStateFlow<String?>(null)
+
+    fun exportBackup(uri: Uri) = viewModelScope.launch {
+        val app = getApplication<Application>()
+        runCatching {
+            val json = Backup.export(dao, c.settings, Updates.installedVersion(app))
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                app.contentResolver.openOutputStream(uri, "wt")?.use { it.write(json.toByteArray()) } ?: error("Couldn't open the file")
+            }
+        }.onSuccess { backupMessage.value = "Backup saved." }
+            .onFailure { backupMessage.value = "Backup failed: ${it.message}" }
+    }
+
+    fun restoreBackup(uri: Uri) = viewModelScope.launch {
+        val app = getApplication<Application>()
+        runCatching {
+            val json = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                app.contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() } ?: error("Couldn't open the file")
+            }
+            Backup.restore(json, dao, c.settings)
+        }.onSuccess { r ->
+            backupMessage.value = buildString {
+                append("Restored ${r.books} ${if (r.books == 1) "book" else "books"}, ${r.bookmarks} ${if (r.bookmarks == 1) "bookmark" else "bookmarks"} and ${r.days} days of listening.")
+                if (r.missingBooks > 0) append(" ${r.missingBooks} ${if (r.missingBooks == 1) "book wasn't" else "books weren't"} found: add their libraries, let them sync, then restore again.")
+            }
+            // Where a server has a newer position than the backup (you listened elsewhere since), it wins.
+            repo.syncAll(force = true)
+        }.onFailure { backupMessage.value = "That file couldn't be restored: ${it.message}" }
+    }
 
     fun addBookmark(note: String) = player.addBookmark(note)
     fun markUnread(id: String) = viewModelScope.launch {
@@ -304,6 +436,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val libs = jf.libraries(base, login.token, login.userId)
         val pending = SourceEntity(type = SourceType.JELLYFIN, name = "Jellyfin", baseUrl = base, token = login.token, userId = login.userId)
         connect.value = if (libs.isEmpty()) ConnectState.Failed("No libraries found") else ConnectState.PickLibrary(libs, pending)
+    }
+
+    fun connectAudiobookshelf(url: String, user: String, password: String) = connecting {
+        val base = url.trim().trimEnd('/').let { if (it.startsWith("http")) it else "http://$it" }
+        connect.value = ConnectState.Working("Signing in…")
+        val abs = repo.abs()
+        val login = abs.login(base, user.trim(), password)
+        val libs = abs.libraries(base, login.token)
+        val pending = SourceEntity(
+            type = SourceType.AUDIOBOOKSHELF, name = "Audiobookshelf", baseUrl = base,
+            token = login.token, refreshToken = login.refreshToken, userId = login.userId,
+        )
+        connect.value = if (libs.isEmpty()) ConnectState.Failed("No audiobook libraries found") else ConnectState.PickLibrary(libs, pending)
     }
 
     fun chooseLibrary(pending: SourceEntity, library: RemoteLibrary) = connecting {

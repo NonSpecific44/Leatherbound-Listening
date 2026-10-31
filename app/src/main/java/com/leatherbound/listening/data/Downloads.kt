@@ -22,7 +22,9 @@ import com.leatherbound.listening.data.remote.Http
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.Request
+import android.os.Environment
 import android.os.SystemClock
+import android.os.storage.StorageManager
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -36,8 +38,34 @@ object Downloads {
     const val CHANNEL = "downloads"
     private const val KEY_BOOK = "book_id"
 
-    fun dir(context: Context, bookId: String): File =
-        File(context.getExternalFilesDir(null) ?: context.filesDir, "books/" + bookId.replace(Regex("[^A-Za-z0-9._-]"), "_"))
+    /**
+     * Every place downloads can go: the phone's main storage first, then any SD card. These are the
+     * app's own folders, so no storage permission is needed, and Android removes them with the app.
+     */
+    fun roots(context: Context): List<File> =
+        context.getExternalFilesDirs(null).filterNotNull()
+            .filter { Environment.getExternalStorageState(it) == Environment.MEDIA_MOUNTED }
+            .ifEmpty { listOf(context.filesDir) }
+
+    /** "Internal shared storage", "SanDisk SD card", … */
+    fun label(context: Context, root: File): String =
+        context.getSystemService(StorageManager::class.java)?.getStorageVolume(root)?.getDescription(context)
+            ?: if (root == roots(context).first()) "Phone storage" else root.path
+
+    /** Where new downloads go: the folder chosen in Settings if it's still there, else the main storage. */
+    fun preferredRoot(context: Context, chosen: String): File =
+        roots(context).firstOrNull { it.path == chosen } ?: roots(context).first()
+
+    private fun folderName(bookId: String) = "books/" + bookId.replace(Regex("[^A-Za-z0-9._-]"), "_")
+
+    fun dir(root: File, bookId: String): File = File(root, folderName(bookId))
+
+    /** This book's folders on every storage (older downloads may sit somewhere other than the current choice). */
+    fun dirs(context: Context, bookId: String): List<File> =
+        (roots(context) + context.filesDir).distinct().map { dir(it, bookId) }.filter { it.exists() }
+
+    fun bytesUsed(context: Context, bookId: String): Long =
+        dirs(context, bookId).sumOf { d -> d.walkTopDown().filter { it.isFile }.sumOf { it.length() } }
 
     suspend fun enqueue(context: Context, bookId: String, wifiOnly: Boolean) {
         val app = context.applicationContext as LeatherboundApp
@@ -94,7 +122,7 @@ object Downloads {
     }
 
     fun deleteFiles(context: Context, bookId: String) {
-        runCatching { dir(context, bookId).deleteRecursively() }
+        dirs(context, bookId).forEach { runCatching { it.deleteRecursively() } }
     }
 
     class DownloadWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
@@ -127,7 +155,8 @@ object Downloads {
             // Re-read: refreshConnections may have moved the server to a faster address.
             val tracks = dao.tracks(bookId)
             val totalMs = tracks.sumOf { it.durationMs }.coerceAtLeast(1)
-            val folder = dir(applicationContext, bookId).apply { mkdirs() }
+            val root = preferredRoot(applicationContext, repo.settingsStore.current().downloadRoot)
+            val folder = dir(root, bookId).apply { mkdirs() }
 
             // Work out the total size up front (already-saved files + HEAD for the rest) for "120 MB of 450 MB".
             val done = tracks.map { t -> t.localPath?.let(::File)?.takeIf { it.exists() } }

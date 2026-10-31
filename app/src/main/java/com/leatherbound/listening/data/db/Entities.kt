@@ -4,7 +4,7 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
-enum class SourceType { PLEX, JELLYFIN, LOCAL }
+enum class SourceType { PLEX, JELLYFIN, LOCAL, AUDIOBOOKSHELF }
 
 enum class DownloadState { NONE, QUEUED, DOWNLOADING, DONE, FAILED }
 
@@ -22,6 +22,8 @@ data class SourceEntity(
     val lastSyncedAt: Long = 0,
     /** Plex: every address for the server, best first, newline-separated. [baseUrl] is the one in use. */
     val connections: String = "",
+    /** Audiobookshelf: encrypted refresh token, used to get a new access token when it expires. */
+    val refreshToken: String = "",
 )
 
 @Entity(tableName = "books", indices = [Index("sourceId"), Index("seriesName")])
@@ -115,6 +117,20 @@ data class BookmarkEntity(
     val bookId: String,
     val positionMs: Long,
     val note: String,
+    val createdAt: Long,
+)
+
+enum class PendingKind { PROGRESS, FINISHED, UNREAD }
+
+/**
+ * Something that couldn't be sent to the server (usually because you were offline), waiting to be
+ * sent when the connection is back. One per book: the latest change replaces an older one.
+ * For PROGRESS, the book's current position is sent, whatever it is by then.
+ */
+@Entity(tableName = "pending_sync")
+data class PendingSyncEntity(
+    @PrimaryKey val bookId: String,
+    val kind: PendingKind,
     val createdAt: Long,
 )
 

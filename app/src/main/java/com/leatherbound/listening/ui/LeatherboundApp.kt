@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -115,6 +117,46 @@ class Navigator(private val nav: NavHostController) {
     }
 }
 
+/** "A new version is available", with the release notes, until you install, skip or dismiss it. */
+@Composable
+private fun UpdatePrompt(vm: AppViewModel) {
+    val update by vm.update.collectAsStateWithLifecycle()
+    val release = when (val u = update) {
+        is UpdateState.Available -> u.release
+        is UpdateState.Downloading -> u.release
+        else -> return
+    }
+    val progress = (update as? UpdateState.Downloading)?.progress
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = { if (progress == null) vm.dismissUpdate() },
+        title = { Text("Version ${release.version} is available") },
+        text = {
+            androidx.compose.foundation.layout.Column(
+                Modifier.heightIn(max = 360.dp).verticalScroll(androidx.compose.foundation.rememberScrollState()),
+                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+            ) {
+                if (progress != null) {
+                    Text("Downloading… ${(progress * 100).toInt()}%")
+                    androidx.compose.material3.LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+                }
+                Text(
+                    release.notes.lines().joinToString("\n") { it.replace(Regex("^#+\\s*"), "").replace(Regex("^- "), "• ") }.ifBlank { "No release notes." },
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = { vm.installUpdate(release) }, enabled = progress == null) { Text("Install") }
+        },
+        dismissButton = {
+            androidx.compose.foundation.layout.Row {
+                if (progress == null) androidx.compose.material3.TextButton(onClick = { vm.skipUpdate(release.version) }) { Text("Skip this version") }
+                androidx.compose.material3.TextButton(onClick = { vm.dismissUpdate() }) { Text(if (progress == null) "Later" else "Cancel") }
+            }
+        },
+    )
+}
+
 @Composable
 fun LeatherboundRoot(vm: AppViewModel) {
     val nav = rememberNavController()
@@ -171,6 +213,8 @@ fun LeatherboundRoot(vm: AppViewModel) {
             onDismiss = { confirmDelete = null },
         )
     }
+
+    UpdatePrompt(vm)
 
     // The top bar's downloads button shows what's in flight.
     val downloads by vm.downloads.collectAsStateWithLifecycle()

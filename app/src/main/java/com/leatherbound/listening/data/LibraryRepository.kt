@@ -9,10 +9,13 @@ import com.leatherbound.listening.data.db.ChapterEntity
 import com.leatherbound.listening.data.db.CollectionBookEntity
 import com.leatherbound.listening.data.db.CollectionEntity
 import com.leatherbound.listening.data.db.DownloadState
+import com.leatherbound.listening.data.db.PendingKind
+import com.leatherbound.listening.data.db.PendingSyncEntity
 import com.leatherbound.listening.data.db.SourceEntity
 import com.leatherbound.listening.data.db.SourceType
 import com.leatherbound.listening.data.db.TrackEntity
 import com.leatherbound.listening.data.local.LocalScanner
+import com.leatherbound.listening.data.remote.AudiobookshelfClient
 import com.leatherbound.listening.data.remote.JellyfinClient
 import com.leatherbound.listening.data.remote.PlexClient
 import com.leatherbound.listening.data.remote.RemoteBook
@@ -35,6 +38,7 @@ class LibraryRepository(
     db: AppDatabase,
     private val settings: SettingsStore,
 ) {
+    val settingsStore get() = settings
     val dao = db.dao()
     private val scanner = LocalScanner(context)
 
@@ -49,6 +53,7 @@ class LibraryRepository(
 
     suspend fun plex() = PlexClient(settings.deviceId())
     suspend fun jellyfin() = JellyfinClient(settings.deviceId())
+    fun abs() = AudiobookshelfClient()
 
     /** The source's access token, decrypted. Empty if it can't be (sign in again). */
     fun SourceEntity.secret(): String = TokenVault.decrypt(token)
@@ -58,7 +63,7 @@ class LibraryRepository(
     // ---------------- Sources ----------------
 
     suspend fun addSource(source: SourceEntity): Long {
-        val id = dao.insertSource(source.copy(token = TokenVault.encrypt(source.token)))
+        val id = dao.insertSource(source.copy(token = TokenVault.encrypt(source.token), refreshToken = TokenVault.encrypt(source.refreshToken)))
         dao.source(id)?.let { runCatching { sync(it) }.onFailure { _lastError.value = it.message } }
         return id
     }
@@ -96,6 +101,7 @@ class LibraryRepository(
      * leave or come home. Stored stream and cover URLs are moved over to the new address.
      */
     suspend fun refreshConnections() = coroutineScope {
+        refreshTokens()
         dao.sources().filter { it.type == SourceType.PLEX }.map { source ->
             async {
                 runCatching {
@@ -114,6 +120,19 @@ class LibraryRepository(
     }
 
     /**
+     * Audiobookshelf 2.26+ access tokens expire after a while; swap the refresh token for new ones.
+     * Older servers' tokens don't expire and have no refresh token, so they're left alone.
+     */
+    private suspend fun refreshTokens() {
+        dao.sources().filter { it.type == SourceType.AUDIOBOOKSHELF && it.refreshToken.isNotEmpty() }.forEach { source ->
+            runCatching {
+                val fresh = abs().refresh(source.baseUrl, TokenVault.decrypt(source.refreshToken))
+                dao.updateTokens(source.id, TokenVault.encrypt(fresh.token), TokenVault.encrypt(fresh.refreshToken))
+            }
+        }
+    }
+
+    /**
      * Refreshes every source; without [force], only those not synced in the last few minutes.
      * Runs on every launch so progress made on other devices shows up.
      */
@@ -124,6 +143,8 @@ class LibraryRepository(
         try {
             protectTokens()
             refreshConnections()
+            // Send what was saved while offline before reading the servers back.
+            flushPending()
             refreshAccountName()
             val now = System.currentTimeMillis()
             coroutineScope {
@@ -143,6 +164,8 @@ class LibraryRepository(
             runCatching { plex().accountName(s.secret()) }.getOrNull()
         } ?: sources.filter { it.type == SourceType.JELLYFIN }.firstNotNullOfOrNull { s ->
             runCatching { jellyfin().userName(s.baseUrl, s.secret(), s.userId) }.getOrNull()
+        } ?: sources.filter { it.type == SourceType.AUDIOBOOKSHELF }.firstNotNullOfOrNull { s ->
+            runCatching { abs().userName(s.baseUrl, s.secret()) }.getOrNull()
         }
         if (name != null) settings.setAccountName(name)
     }
@@ -156,6 +179,7 @@ class LibraryRepository(
         val catalog: RemoteCatalog = when (source.type) {
             SourceType.PLEX -> plex().books(source.baseUrl, token, source.libraryId)
             SourceType.JELLYFIN -> jellyfin().books(source.baseUrl, token, source.userId, source.libraryId)
+            SourceType.AUDIOBOOKSHELF -> abs().books(source.baseUrl, token, source.libraryId, existing.values.associate { it.remoteId to it.scanSignature })
             SourceType.LOCAL -> RemoteCatalog(scanner.scan(Uri.parse(source.baseUrl), existing.values.associate { it.remoteId to it.scanSignature }))
         }
         val remote = catalog.books
@@ -228,6 +252,7 @@ class LibraryRepository(
             async {
                 val up = when (source.type) {
                     SourceType.PLEX -> plex().ping(source.baseUrl, source.secret())
+                    SourceType.AUDIOBOOKSHELF -> abs().ping(source.baseUrl)
                     else -> jellyfin().ping(source.baseUrl)
                 }
                 _serverStatus.value = _serverStatus.value + (source.id to if (up) ServerStatus.ONLINE else ServerStatus.OFFLINE)
@@ -288,8 +313,8 @@ class LibraryRepository(
     private val lastPush = ConcurrentHashMap<String, Long>()
 
     /**
-     * Sends your place to Plex/Jellyfin. While playing it's sent at most once a minute;
-     * pauses ([force]) are always sent.
+     * Sends your place to the server. While playing it's sent at most once a minute;
+     * pauses ([force]) are always sent. If it can't be sent (offline), it's queued for later.
      */
     suspend fun pushProgress(bookId: String, positionMs: Long, playing: Boolean, force: Boolean) {
         val now = System.currentTimeMillis()
@@ -298,15 +323,78 @@ class LibraryRepository(
         val book = dao.book(bookId) ?: return
         val source = dao.source(book.sourceId) ?: return
         if (source.type == SourceType.LOCAL) return
-        val tracks = dao.tracks(bookId)
-        val (index, offset) = tracks.locate(positionMs)
-        val track = tracks.getOrNull(index) ?: return
-        runCatching {
-            when (source.type) {
-                SourceType.PLEX -> plex().reportProgress(source.baseUrl, source.secret(), track.remoteId, offset, track.durationMs, playing)
-                SourceType.JELLYFIN -> jellyfin().reportProgress(source.baseUrl, source.secret(), track.remoteId, offset, playing)
-                SourceType.LOCAL -> Unit
+        if (sendProgress(book, source, positionMs, playing)) dao.clearPending(bookId, now, PendingKind.PROGRESS)
+        else queue(bookId, PendingKind.PROGRESS)
+    }
+
+    private suspend fun sendProgress(book: BookEntity, source: SourceEntity, positionMs: Long, playing: Boolean): Boolean = runCatching {
+        when (source.type) {
+            SourceType.PLEX, SourceType.JELLYFIN -> {
+                val tracks = dao.tracks(book.id)
+                val (index, offset) = tracks.locate(positionMs)
+                val track = tracks.getOrNull(index) ?: return true
+                if (source.type == SourceType.PLEX) plex().reportProgress(source.baseUrl, source.secret(), track.remoteId, offset, track.durationMs, playing)
+                else jellyfin().reportProgress(source.baseUrl, source.secret(), track.remoteId, offset, playing)
             }
+            SourceType.AUDIOBOOKSHELF -> abs().reportProgress(source.baseUrl, source.secret(), book.remoteId, positionMs, book.durationMs)
+            SourceType.LOCAL -> Unit
+        }
+    }.isSuccess
+
+    private suspend fun sendFinished(book: BookEntity, source: SourceEntity): Boolean = runCatching {
+        when (source.type) {
+            SourceType.PLEX -> plex().markPlayed(source.baseUrl, source.secret(), book.remoteId)
+            SourceType.JELLYFIN -> dao.tracks(book.id).forEach {
+                jellyfin().markPlayed(source.baseUrl, source.secret(), source.userId, it.remoteId)
+            }
+            SourceType.AUDIOBOOKSHELF -> abs().markPlayed(source.baseUrl, source.secret(), book.remoteId, book.durationMs)
+            SourceType.LOCAL -> Unit
+        }
+    }.isSuccess
+
+    private suspend fun sendUnread(book: BookEntity, source: SourceEntity): Boolean = runCatching {
+        when (source.type) {
+            SourceType.PLEX -> plex().markUnplayed(source.baseUrl, source.secret(), book.remoteId)
+            SourceType.JELLYFIN -> dao.tracks(book.id).forEach {
+                jellyfin().markUnplayed(source.baseUrl, source.secret(), source.userId, it.remoteId)
+            }
+            SourceType.AUDIOBOOKSHELF -> abs().markUnplayed(source.baseUrl, source.secret(), book.remoteId, book.durationMs)
+            SourceType.LOCAL -> Unit
+        }
+    }.isSuccess
+
+    /** Remembers a change to send later. A position doesn't replace a waiting "finished" or "unread". */
+    private suspend fun queue(bookId: String, kind: PendingKind) {
+        val waiting = dao.pendingFor(bookId)
+        if (kind == PendingKind.PROGRESS && waiting != null && waiting.kind != PendingKind.PROGRESS) return
+        dao.upsertPending(PendingSyncEntity(bookId, kind, System.currentTimeMillis()))
+    }
+
+    /** Changes waiting to reach a server, for Settings. */
+    val pendingCount = dao.observePendingCount()
+
+    private val flushing = kotlinx.coroutines.sync.Mutex()
+
+    /**
+     * Sends everything saved while offline: positions, finished and unread. Runs when the phone
+     * gets a connection and before every sync. Whatever still fails stays queued.
+     */
+    suspend fun flushPending() {
+        if (!flushing.tryLock()) return
+        try {
+            for (p in dao.pending()) {
+                val book = dao.book(p.bookId)
+                val source = book?.let { dao.source(it.sourceId) }
+                if (book == null || source == null || source.type == SourceType.LOCAL) { dao.clearPending(p.bookId, p.createdAt); continue }
+                val sent = when (p.kind) {
+                    PendingKind.PROGRESS -> sendProgress(book, source, book.positionMs, playing = false)
+                    PendingKind.FINISHED -> sendFinished(book, source)
+                    PendingKind.UNREAD -> sendUnread(book, source)
+                }
+                if (sent) dao.clearPending(p.bookId, p.createdAt)
+            }
+        } finally {
+            flushing.unlock()
         }
     }
 
@@ -323,15 +411,7 @@ class LibraryRepository(
             if (s.removeFinishedFromList) dao.setListPosition(bookId, null)
             if (s.deleteDownloadWhenFinished && book.downloadState != DownloadState.NONE) Downloads.remove(context, bookId)
             val source = dao.source(book.sourceId) ?: return
-            runCatching {
-                when (source.type) {
-                    SourceType.PLEX -> plex().markPlayed(source.baseUrl, source.secret(), book.remoteId)
-                    SourceType.JELLYFIN -> dao.tracks(bookId).forEach {
-                        jellyfin().markPlayed(source.baseUrl, source.secret(), source.userId, it.remoteId)
-                    }
-                    SourceType.LOCAL -> Unit
-                }
-            }
+            if (source.type != SourceType.LOCAL && !sendFinished(book, source)) queue(bookId, PendingKind.FINISHED)
         }
     }
 
@@ -341,15 +421,7 @@ class LibraryRepository(
         dao.resetProgress(bookId)
         lastPush.remove(bookId)
         val source = dao.source(book.sourceId) ?: return
-        runCatching {
-            when (source.type) {
-                SourceType.PLEX -> plex().markUnplayed(source.baseUrl, source.secret(), book.remoteId)
-                SourceType.JELLYFIN -> dao.tracks(bookId).forEach {
-                    jellyfin().markUnplayed(source.baseUrl, source.secret(), source.userId, it.remoteId)
-                }
-                SourceType.LOCAL -> Unit
-            }
-        }
+        if (source.type != SourceType.LOCAL && !sendUnread(book, source)) queue(bookId, PendingKind.UNREAD)
     }
 
     suspend fun setBookSpeed(bookId: String, speed: Float) = dao.setBookSpeed(bookId, speed)

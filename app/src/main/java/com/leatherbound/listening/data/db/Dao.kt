@@ -18,6 +18,8 @@ interface LibraryDao {
     @Query("UPDATE sources SET lastSyncedAt = :at WHERE id = :id") suspend fun markSynced(id: Long, at: Long)
     @Query("DELETE FROM sources WHERE id = :id") suspend fun deleteSource(id: Long)
     @Query("UPDATE sources SET token = :token WHERE id = :id") suspend fun updateToken(id: Long, token: String)
+    @Query("UPDATE sources SET token = :token, refreshToken = :refreshToken WHERE id = :id")
+    suspend fun updateTokens(id: Long, token: String, refreshToken: String)
     @Query("UPDATE sources SET baseUrl = :baseUrl, connections = :connections WHERE id = :id")
     suspend fun updateConnection(id: Long, baseUrl: String, connections: String)
     @Query("UPDATE tracks SET url = REPLACE(url, :oldBase, :newBase) WHERE bookId IN (SELECT id FROM books WHERE sourceId = :sourceId)")
@@ -135,4 +137,22 @@ interface LibraryDao {
         insertDay(ListeningDayEntity(day, bookId, 0))
         addToDay(day, bookId, ms)
     }
+
+    // Changes waiting for a connection
+    @Upsert suspend fun upsertPending(pending: PendingSyncEntity)
+    @Query("SELECT * FROM pending_sync ORDER BY createdAt") suspend fun pending(): List<PendingSyncEntity>
+    @Query("DELETE FROM pending_sync WHERE bookId = :bookId AND createdAt <= :upTo") suspend fun clearPending(bookId: String, upTo: Long)
+    @Query("DELETE FROM pending_sync WHERE bookId = :bookId AND createdAt <= :upTo AND kind = :kind")
+    suspend fun clearPending(bookId: String, upTo: Long, kind: PendingKind)
+    @Query("SELECT * FROM pending_sync WHERE bookId = :bookId") suspend fun pendingFor(bookId: String): PendingSyncEntity?
+    @Query("SELECT COUNT(*) FROM pending_sync") fun observePendingCount(): Flow<Int>
+
+    // Backup
+    @Query("SELECT * FROM books") suspend fun allBooks(): List<BookEntity>
+    @Query("SELECT * FROM bookmarks") suspend fun allBookmarks(): List<BookmarkEntity>
+    @Query("SELECT * FROM listening_days") suspend fun allListeningDays(): List<ListeningDayEntity>
+    @Query("UPDATE books SET positionMs = :positionMs, lastPlayedAt = :lastPlayedAt, isFinished = :finished, finishedAt = :finishedAt, listPosition = :listPosition, playbackSpeed = :speed WHERE id = :id")
+    suspend fun restoreState(id: String, positionMs: Long, lastPlayedAt: Long, finished: Boolean, finishedAt: Long, listPosition: Int?, speed: Float?)
+    @Upsert suspend fun upsertListeningDays(days: List<ListeningDayEntity>)
+    @Query("DELETE FROM listening_days WHERE bookId = :bookId") suspend fun deleteListening(bookId: String)
 }

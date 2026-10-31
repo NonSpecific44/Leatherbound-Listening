@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.AlertDialog
@@ -60,12 +61,15 @@ import com.leatherbound.listening.data.db.SourceEntity
 import com.leatherbound.listening.data.db.SourceType
 import com.leatherbound.listening.ui.AppViewModel
 import com.leatherbound.listening.ui.ConnectState
+import com.leatherbound.listening.ui.UpdateState
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Remove
 import com.leatherbound.listening.ui.components.Ornament
 import com.leatherbound.listening.ui.components.paper
 import java.text.DateFormat
 import java.util.Date
 
-private enum class Dialog { NONE, PLEX, JELLYFIN }
+private enum class Dialog { NONE, PLEX, JELLYFIN, AUDIOBOOKSHELF }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -74,6 +78,12 @@ fun SettingsScreen(vm: AppViewModel, nav: com.leatherbound.listening.ui.Navigato
     val sources by vm.sources.collectAsStateWithLifecycle()
     val syncing by vm.syncing.collectAsStateWithLifecycle()
     val connect by vm.connect.collectAsStateWithLifecycle()
+    val pendingSync by vm.pendingSync.collectAsStateWithLifecycle()
+    val update by vm.update.collectAsStateWithLifecycle()
+    val backupMessage by vm.backupMessage.collectAsStateWithLifecycle()
+    var confirmRestore by remember { mutableStateOf<android.net.Uri?>(null) }
+    val saveBackup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri -> uri?.let(vm::exportBackup) }
+    val openBackup = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> confirmRestore = uri }
     var dialog by remember { mutableStateOf(Dialog.NONE) }
     var sourcesAtOpen by remember { mutableStateOf(0) }
     var confirmRemove by remember { mutableStateOf<SourceEntity?>(null) }
@@ -92,7 +102,12 @@ fun SettingsScreen(vm: AppViewModel, nav: com.leatherbound.listening.ui.Navigato
                 ListItem(
                     colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                     leadingContent = {
-                        Icon(when (s.type) { SourceType.PLEX -> Icons.Filled.Storage; SourceType.JELLYFIN -> Icons.Filled.Cloud; SourceType.LOCAL -> Icons.Filled.Folder }, null)
+                        Icon(when (s.type) {
+                            SourceType.PLEX -> Icons.Filled.Storage
+                            SourceType.JELLYFIN -> Icons.Filled.Cloud
+                            SourceType.AUDIOBOOKSHELF -> Icons.Filled.Headphones
+                            SourceType.LOCAL -> Icons.Filled.Folder
+                        }, null)
                     },
                     headlineContent = { Text(s.name) },
                     supportingContent = {
@@ -110,12 +125,17 @@ fun SettingsScreen(vm: AppViewModel, nav: com.leatherbound.listening.ui.Navigato
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 8.dp)) {
                 OutlinedButton(onClick = { sourcesAtOpen = sources.size; dialog = Dialog.PLEX }) { Text("Add Plex") }
                 OutlinedButton(onClick = { sourcesAtOpen = sources.size; dialog = Dialog.JELLYFIN }) { Text("Add Jellyfin") }
+                OutlinedButton(onClick = { sourcesAtOpen = sources.size; dialog = Dialog.AUDIOBOOKSHELF }) { Text("Add Audiobookshelf") }
                 OutlinedButton(onClick = { pickFolder.launch(null) }) { Text("Add folder") }
                 if (sources.isNotEmpty()) OutlinedButton(onClick = { vm.sync() }, enabled = !syncing) {
                     if (syncing) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp) else Icon(Icons.Filled.Refresh, null, Modifier.size(18.dp))
                     Text("  Sync now")
                 }
             }
+            if (pendingSync > 0) Text(
+                "$pendingSync ${if (pendingSync == 1) "change" else "changes"} saved while offline, to send to your servers when you're back online.",
+                style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
 
             Spacer(Modifier.height(12.dp))
             Ornament("Listening")
@@ -141,6 +161,23 @@ fun SettingsScreen(vm: AppViewModel, nav: com.leatherbound.listening.ui.Navigato
             Toggle("Download on Wi-Fi only", null, settings.downloadOnWifiOnly, vm::setWifiOnly)
             Toggle("Download the next book automatically", "When you're 80% through a book, download the next one in its series (or Up Next). Only that one book.", settings.autoDownloadNext, vm::setAutoDownloadNext)
             Toggle("Delete downloads of finished books", null, settings.deleteDownloadWhenFinished, vm::setDeleteWhenFinished)
+            val storage = remember { vm.storageChoices() }
+            Text("Save downloads to", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = 8.dp))
+            Text(
+                if (storage.size > 1) "New downloads go here. Books already downloaded stay where they are."
+                else "Only the phone's storage is available. Insert an SD card to choose it here.",
+                style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                val chosen = storage.firstOrNull { it.path == settings.downloadRoot } ?: storage.firstOrNull()
+                storage.forEach { choice ->
+                    FilterChip(
+                        selected = choice == chosen,
+                        onClick = { vm.setDownloadRoot(choice.path) },
+                        label = { Text("${choice.label} · ${formatBytes(choice.freeBytes)} free") },
+                    )
+                }
+            }
             OutlinedButton(onClick = { nav.downloads() }, modifier = Modifier.padding(vertical = 4.dp)) { Text("Manage downloads") }
 
             Spacer(Modifier.height(12.dp))
@@ -172,19 +209,46 @@ fun SettingsScreen(vm: AppViewModel, nav: com.leatherbound.listening.ui.Navigato
                     dismissButton = { TextButton(onClick = { editName = false }) { Text("Cancel") } },
                 )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ThemeMode.entries.forEach { mode ->
                     FilterChip(
                         selected = settings.theme == mode,
                         onClick = { vm.setTheme(mode) },
-                        label = { Text(when (mode) { ThemeMode.SYSTEM -> "System"; ThemeMode.LIGHT -> "Parchment"; ThemeMode.DARK -> "Leather" }) },
+                        label = { Text(when (mode) { ThemeMode.SYSTEM -> "System"; ThemeMode.LIGHT -> "Parchment"; ThemeMode.DARK -> "Leather"; ThemeMode.LAMPLIGHT -> "Lamplight" }) },
                     )
                 }
             }
+            Toggle(
+                "Lamplight at night",
+                "A dim, warm theme for listening in bed, from ${hourLabel(settings.nightStartHour)} to ${hourLabel(settings.nightEndHour)}",
+                settings.lamplightAtNight, vm::setLamplightAtNight,
+            )
+            if (settings.lamplightAtNight) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                HourStepper("From", settings.nightStartHour) { vm.setNightHours(it, settings.nightEndHour) }
+                Spacer(Modifier.size(12.dp))
+                HourStepper("Until", settings.nightEndHour) { vm.setNightHours(settings.nightStartHour, it) }
+            }
+
+            Spacer(Modifier.height(12.dp))
+            Ornament("Backup")
+            Text(
+                "Saves your settings, places in books, finished books, Up Next, bookmarks and listening stats to a file. " +
+                    "Sign-ins aren't included: on a new phone, add your libraries first, let them sync, then restore.",
+                style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 8.dp)) {
+                OutlinedButton(onClick = { saveBackup.launch("leatherbound-backup-${java.time.LocalDate.now()}.json") }) { Text("Back up to a file") }
+                OutlinedButton(onClick = { openBackup.launch(arrayOf("application/json", "application/octet-stream", "text/plain")) }) { Text("Restore from a file") }
+            }
+            backupMessage?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+
+            Spacer(Modifier.height(12.dp))
+            Ornament("Updates")
+            UpdateSection(vm, settings.updateToken.isNotEmpty(), update)
             Spacer(Modifier.height(24.dp))
             HorizontalDivider()
             Text(
-                "Leatherbound Listening · set in Libre Baskerville",
+                "Leatherbound Listening ${remember { com.leatherbound.listening.data.Updates.installedVersion(context) }} · set in Libre Baskerville",
                 style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp),
             )
@@ -195,8 +259,18 @@ fun SettingsScreen(vm: AppViewModel, nav: com.leatherbound.listening.ui.Navigato
         Dialog.PLEX -> PlexDialog(vm, connect, onDismiss = { dialog = Dialog.NONE; vm.cancelConnect() }) {
             context.startActivity(AppViewModel.browserIntent(it))
         }
-        Dialog.JELLYFIN -> JellyfinDialog(vm, connect, onDismiss = { dialog = Dialog.NONE; vm.cancelConnect() })
+        Dialog.JELLYFIN -> ServerLoginDialog("Connect Jellyfin", "http://192.168.1.10:8096", vm, connect, onDismiss = { dialog = Dialog.NONE; vm.cancelConnect() }, onSignIn = vm::connectJellyfin)
+        Dialog.AUDIOBOOKSHELF -> ServerLoginDialog("Connect Audiobookshelf", "http://192.168.1.10:13378", vm, connect, onDismiss = { dialog = Dialog.NONE; vm.cancelConnect() }, onSignIn = vm::connectAudiobookshelf)
         Dialog.NONE -> if (connect is ConnectState.Working) WorkingDialog((connect as ConnectState.Working).message)
+    }
+    confirmRestore?.let { uri ->
+        AlertDialog(
+            onDismissRequest = { confirmRestore = null },
+            title = { Text("Restore from this backup?") },
+            text = { Text("Settings, places in books, finished books and Up Next are replaced with the backup's for every book it covers. Bookmarks and listening stats are added to what's here.") },
+            confirmButton = { TextButton(onClick = { vm.restoreBackup(uri); confirmRestore = null }) { Text("Restore") } },
+            dismissButton = { TextButton(onClick = { confirmRestore = null }) { Text("Cancel") } },
+        )
     }
     confirmRemove?.let { s ->
         AlertDialog(
@@ -320,18 +394,22 @@ private fun PlexDialog(vm: AppViewModel, state: ConnectState, onDismiss: () -> U
     )
 }
 
+/** Server address, username and password: Jellyfin and Audiobookshelf. */
 @Composable
-private fun JellyfinDialog(vm: AppViewModel, state: ConnectState, onDismiss: () -> Unit) {
+private fun ServerLoginDialog(
+    title: String, placeholder: String, vm: AppViewModel, state: ConnectState,
+    onDismiss: () -> Unit, onSignIn: (url: String, user: String, password: String) -> Unit,
+) {
     var url by remember { mutableStateOf("") }
     var user by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Connect Jellyfin") },
+        title = { Text(title) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (state is ConnectState.Idle || state is ConnectState.Failed) {
-                    OutlinedTextField(url, { url = it }, label = { Text("Server URL") }, placeholder = { Text("http://192.168.1.10:8096") }, singleLine = true,
+                    OutlinedTextField(url, { url = it }, label = { Text("Server URL") }, placeholder = { Text(placeholder) }, singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri))
                     OutlinedTextField(user, { user = it }, label = { Text("Username") }, singleLine = true)
                     OutlinedTextField(password, { password = it }, label = { Text("Password") }, singleLine = true,
@@ -342,9 +420,84 @@ private fun JellyfinDialog(vm: AppViewModel, state: ConnectState, onDismiss: () 
         },
         confirmButton = {
             if (state is ConnectState.Idle || state is ConnectState.Failed) {
-                TextButton(onClick = { vm.connectJellyfin(url, user, password) }, enabled = url.isNotBlank() && user.isNotBlank()) { Text("Sign in") }
+                TextButton(onClick = { onSignIn(url, user, password) }, enabled = url.isNotBlank() && user.isNotBlank()) { Text("Sign in") }
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+private fun hourLabel(hour: Int): String = when {
+    hour == 0 -> "midnight"
+    hour == 12 -> "noon"
+    hour < 12 -> "$hour am"
+    else -> "${hour - 12} pm"
+}
+
+private fun formatBytes(bytes: Long): String = when {
+    bytes >= 1L shl 30 -> "%.1f GB".format(bytes / (1L shl 30).toDouble())
+    else -> "${bytes / (1L shl 20)} MB"
+}
+
+@Composable
+private fun HourStepper(label: String, hour: Int, onChange: (Int) -> Unit) {
+    Text(label, style = MaterialTheme.typography.bodyMedium)
+    IconButton(onClick = { onChange(hour - 1) }) { Icon(Icons.Filled.Remove, "Earlier") }
+    Text(hourLabel(hour), style = MaterialTheme.typography.bodyLarge)
+    IconButton(onClick = { onChange(hour + 1) }) { Icon(Icons.Filled.Add, "Later") }
+}
+
+/** GitHub token, "Check now", and what the last check found. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun UpdateSection(vm: AppViewModel, hasToken: Boolean, state: UpdateState) {
+    val context = LocalContext.current
+    var editToken by remember { mutableStateOf(false) }
+    Text(
+        if (hasToken) "The app checks GitHub for a new version when you open it, at most every few hours."
+        else "The app's GitHub repository is private, so checking it needs a read-only GitHub token. Without one, there's no update check.",
+        style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 8.dp)) {
+        OutlinedButton(onClick = { editToken = true }) { Text(if (hasToken) "Change token" else "Add GitHub token") }
+        if (hasToken) OutlinedButton(onClick = { vm.checkForUpdate(manual = true) }, enabled = state !is UpdateState.Checking) { Text("Check now") }
+    }
+    when (state) {
+        UpdateState.Checking -> Row(verticalAlignment = Alignment.CenterVertically) {
+            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp); Text("  Checking…")
+        }
+        is UpdateState.UpToDate -> Text("You have the latest version (${state.version}).", style = MaterialTheme.typography.bodyMedium)
+        is UpdateState.Available -> Text("Version ${state.release.version} is available.", style = MaterialTheme.typography.bodyMedium)
+        is UpdateState.Downloading -> Text("Downloading ${state.release.version}… ${(state.progress * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium)
+        is UpdateState.Failed -> Text(state.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+        UpdateState.Idle -> Unit
+    }
+    if (editToken) {
+        var token by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { editToken = false },
+            title = { Text("GitHub token") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "On GitHub, create a fine-grained token: Repository access → Only select repositories → ${com.leatherbound.listening.data.Updates.REPO.substringAfter('/')}; " +
+                            "Permissions → Contents → Read-only. Then paste it here. It's stored encrypted on this phone.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    TextButton(onClick = { context.startActivity(AppViewModel.browserIntent(com.leatherbound.listening.data.Updates.TOKEN_PAGE)) }) { Text("Open GitHub") }
+                    OutlinedTextField(
+                        token, { token = it }, singleLine = true, label = { Text("Token") },
+                        placeholder = { Text("github_pat_…") }, visualTransformation = PasswordVisualTransformation(),
+                    )
+                }
+            },
+            confirmButton = { TextButton(onClick = { vm.setUpdateToken(token); editToken = false }, enabled = token.isNotBlank()) { Text("Save") } },
+            dismissButton = {
+                Row {
+                    if (hasToken) TextButton(onClick = { vm.setUpdateToken(""); editToken = false }) { Text("Remove", color = MaterialTheme.colorScheme.error) }
+                    TextButton(onClick = { editToken = false }) { Text("Cancel") }
+                }
+            },
+        )
+    }
 }

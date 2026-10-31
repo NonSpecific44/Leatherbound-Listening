@@ -32,10 +32,12 @@ class AppContainer(context: Context) {
     init {
         // Leaving or coming home changes the network: re-pick each Plex server's address, so
         // you stream over the home network when you're on it and over the internet when you're not.
-        // The short wait lets a new network finish connecting before it is probed.
+        // The short wait lets a new network finish connecting before it is probed. Anything saved
+        // while offline (positions, finished books) is sent once there's a connection again.
         scope.launch {
             network.current.drop(1).filterNotNull().debounce(2_000).collect {
                 runCatching { repository.refreshConnections() }
+                runCatching { repository.flushPending() }
             }
         }
     }

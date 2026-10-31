@@ -39,6 +39,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -163,7 +164,7 @@ fun ServerStatusRow(sources: List<SourceEntity>, status: Map<Long, ServerStatus>
 /** A collection: its own artwork from Plex/Jellyfin if it has one, otherwise a mosaic of its books. */
 @Composable
 fun CollectionCard(collection: CollectionView, onClick: () -> Unit, modifier: Modifier = Modifier, width: Dp = 150.dp) {
-    StackCard(collection.collection.name, collection.books, ArtworkProvider.uri(collection.collection), onClick, modifier, width)
+    StackCard(collection.collection.name, collection.books, ArtworkProvider.uri(collection.collection), onClick, modifier, width, showProgress = true)
 }
 
 /**
@@ -171,7 +172,11 @@ fun CollectionCard(collection: CollectionView, onClick: () -> Unit, modifier: Mo
  * won't load), else up to four covers. Used for collections and genres.
  */
 @Composable
-fun StackCard(title: String, books: List<BookEntity>, cover: Uri?, onClick: () -> Unit, modifier: Modifier = Modifier, width: Dp = 150.dp) {
+fun StackCard(
+    title: String, books: List<BookEntity>, cover: Uri?, onClick: () -> Unit, modifier: Modifier = Modifier, width: Dp = 150.dp,
+    /** Collections (usually series): "3 of 7 finished" and a bar for how far through you are. */
+    showProgress: Boolean = false,
+) {
     // Dp.Unspecified fills the grid cell instead of a fixed width.
     Column(modifier.then(if (width != Dp.Unspecified) Modifier.width(width) else Modifier.fillMaxWidth()).clip(RoundedCornerShape(8.dp)).clickable(onClick = onClick).padding(6.dp)) {
         Box(
@@ -189,10 +194,22 @@ fun StackCard(title: String, books: List<BookEntity>, cover: Uri?, onClick: () -
         }
         Spacer(Modifier.height(6.dp))
         Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        val finished = books.count { it.isFinished }
+        val started = showProgress && books.any { it.hasHistory }
         Text(
-            "${books.size} ${if (books.size == 1) "book" else "books"}",
+            if (started) "$finished of ${books.size} finished" else "${books.size} ${if (books.size == 1) "book" else "books"}",
             style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        if (started) {
+            // Finished books count whole; the one you're in counts as far as you've got.
+            val through = books.sumOf { b -> if (b.isFinished) 1.0 else b.progress.toDouble() } / books.size
+            LinearProgressIndicator(
+                progress = { through.toFloat() },
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp).height(3.dp).clip(RoundedCornerShape(2.dp)),
+                color = MaterialTheme.colorScheme.secondary, trackColor = MaterialTheme.colorScheme.outlineVariant,
+                drawStopIndicator = {},
+            )
+        }
     }
 }
 

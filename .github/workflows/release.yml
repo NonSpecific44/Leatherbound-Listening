@@ -1,4 +1,4 @@
-# Tag v1.2.3 (scripts/release.sh does it) -> signed APK attached to a GitHub Release.
+# Tag v1.2.3 (scripts/release.sh does it) -> signed phone and watch APKs attached to a GitHub Release.
 name: Release
 
 on:
@@ -47,6 +47,7 @@ jobs:
         run: |
           ./gradlew testDebugUnitTest assembleRelease
           cp app/build/outputs/apk/release/app-release.apk "LeatherboundListening-$VERSION.apk"
+          cp wear/build/outputs/apk/release/wear-release.apk "LeatherboundListening-Wear-$VERSION.apk"
 
       - name: Release notes from CHANGELOG.md
         run: awk -v v="$VERSION" '$0 ~ "^## \\[" v "\\]" {f=1; next} /^## \[/ {f=0} f' CHANGELOG.md > notes.md
@@ -55,4 +56,6 @@ jobs:
         with:
           name: Leatherbound Listening ${{ env.VERSION }}
           body_path: notes.md
-          files: LeatherboundListening-${{ env.VERSION }}.apk
+          files: |
+            LeatherboundListening-${{ env.VERSION }}.apk
+            LeatherboundListening-Wear-${{ env.VERSION }}.apk

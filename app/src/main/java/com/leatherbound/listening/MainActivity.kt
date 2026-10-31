@@ -18,6 +18,7 @@ import kotlinx.coroutines.launch
 import com.leatherbound.listening.ui.AppViewModel
 import com.leatherbound.listening.ui.LeatherboundRoot
 import com.leatherbound.listening.ui.theme.LeatherboundTheme
+import com.leatherbound.listening.ui.theme.currentThemeMode
 import com.leatherbound.listening.ui.theme.LocalWideLayout
 
 class MainActivity : ComponentActivity() {
@@ -33,7 +34,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val settings by vm.settings.collectAsStateWithLifecycle()
             val size = calculateWindowSizeClass(this)
-            LeatherboundTheme(settings.theme) {
+            LeatherboundTheme(currentThemeMode(settings)) {
                 CompositionLocalProvider(LocalWideLayout provides (size.widthSizeClass != WindowWidthSizeClass.Compact)) {
                     LeatherboundRoot(vm)
                 }
@@ -46,6 +47,7 @@ class MainActivity : ComponentActivity() {
         container.player.connect()
         // Every time the app comes to the front; skipped if a sync ran in the last few minutes.
         container.scope.launch { container.repository.syncAll() }
+        vm.checkForUpdate(manual = false)
     }
 
     override fun onStop() {

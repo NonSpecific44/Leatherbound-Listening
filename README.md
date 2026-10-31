@@ -1,12 +1,12 @@
 # Leatherbound Listening
 
-A self-made audiobook player for Plex and Jellyfin, with a bound-book look: parchment pages, oxblood leather, gilt rules, and Libre Baskerville type.
+A self-made audiobook player for Plex, Jellyfin and Audiobookshelf, with a bound-book look: parchment pages, oxblood leather, gilt rules, and Libre Baskerville type.
 
 ## Features
 
 | | |
 |---|---|
-| **Sources** | Plex (sign in with your Plex account, or enter a URL + token), Jellyfin (username/password), and folders on the device (Storage Access Framework) |
+| **Sources** | Plex (sign in with your Plex account, or enter a URL + token), Jellyfin (username/password), Audiobookshelf (username/password), and folders on the device (Storage Access Framework) |
 | **Library** | Metadata, chapters and covers are cached in a local Room database. Sort by recently added, recently played, title, author (surname-aware), year, series, length, genre (genre shows a card per genre, with a filter for which genres appear). Filter by unread, in progress, finished, downloaded. Grid or list. |
 | **Chapters** | Plex embedded chapters, Jellyfin chapters, M4B chapters on local files (Nero `chpl` and QuickTime chapter tracks), or one chapter per file. |
 | **Playback** | Media3/ExoPlayer in a foreground service. Skip back and forward 15 s, crossing file boundaries. Resuming after a pause rewinds 5 s (adjustable 0–30 s), and opening the app rewinds the last book 5 s. Speeds from 0.75× to 2.5×. |
@@ -31,6 +31,13 @@ A self-made audiobook player for Plex and Jellyfin, with a bound-book look: parc
 | **Security** | Server tokens are encrypted with an Android Keystore key and kept out of stored URLs. Downloads and cached covers are excluded from backups. |
 | **Collections** | Plex and Jellyfin collections (and series folders on the phone) on Home, in the Library and in search. |
 | **At a glance** | Top bar with the logo and an animated downloads button; server online status on Home. |
+| **Offline changes** | Positions, finished and unread marks that can't reach the server are queued and sent when you're back online (or on the next sync). Settings shows how many are waiting. |
+| **Series progress** | Collection cards show "3 of 7 finished" and a bar for how far through the series you are. |
+| **Backup** | Settings → Backup saves settings, places in books, finished books, Up Next, bookmarks and stats to a JSON file, and restores it (books are matched by library and server id, or title and author). Sign-ins aren't included. |
+| **Download location** | Choose where new downloads go: the phone's storage or an SD card. |
+| **Lamplight** | A dim, warm theme for bed, chosen directly or switched on automatically between hours you set. |
+| **Updates** | With a read-only GitHub token in Settings → Updates, the app checks this repository's latest release on launch (at most every 6 hours) and offers to install it. |
+| **Wear OS** | A watch app shows the book, chapter and time left, with play/pause and ±15 s. It controls the phone; it doesn't play on the watch. |
 | **Adaptive** | Phones get a bottom bar. Tablets and foldables get a navigation rail, wider grids, a side-by-side book page, and a two-page player spread with the table of contents on the right page. |
 
 ## Gestures
@@ -47,6 +54,23 @@ A self-made audiobook player for Plex and Jellyfin, with a bound-book look: parc
 | Up Next | Swipe a book left | Remove it from the list |
 | Up Next, Customise Home | Drag the ≡ grip | Reorder |
 | Any book cover or row | Long-press | Quick menu: play, Up Next, mark finished or unread, download |
+
+## Audiobookshelf
+
+Add it in Settings with your server address (e.g. `http://192.168.1.10:13378`), username and password. Audiobookshelf's series become collections (with their book numbers), as do its collections. Progress syncs both ways. Audiobookshelf 2.26 and later issue short-lived access tokens; the app keeps the refresh token (encrypted) and renews them on each sync.
+
+## Wear OS
+
+The watch app is a separate APK (`LeatherboundListening-Wear-X.Y.Z.apk` on each release). It needs the phone app, Google Play services on both devices, and the same signing key as the phone app (the release APKs have it). To install it, turn on ADB debugging and Wi-Fi debugging on the watch (Settings → Developer options), then:
+
+```
+adb connect <watch-ip>:<port>
+adb -s <watch-ip>:<port> install LeatherboundListening-Wear-X.Y.Z.apk
+```
+
+## Update checks
+
+The repository is private, so the app needs a GitHub token to see its releases. On GitHub: Settings → Developer settings → Fine-grained tokens → Generate new token; Repository access: only Leatherbound-Listening; Permissions: Contents → Read-only. Paste it into the app's Settings → Updates. Android asks once to allow the app to install updates, then asks you to confirm each one.
 
 ## Building
 
@@ -93,9 +117,11 @@ Debug builds come from an unknown source, so Auto hides them. To allow them, ope
 
 ```
 data/            Room entities + DAO, DataStore settings, repository (sync/merge), downloads
-data/remote/     Plex and Jellyfin clients (OkHttp + kotlinx.serialization)
+data/remote/     Plex, Jellyfin and Audiobookshelf clients (OkHttp + kotlinx.serialization)
 data/local/      SAF folder scanner, MP4 chapter reader
 playback/        PlaybackService (MediaLibraryService for notification/lock screen/Auto),
                  AudiobookPlayer (cross-file skip, rewind-on-resume), PlayerConnection (UI controller)
 ui/              Compose theme, book-style components, screens, shared ViewModel
+wear/            The phone side of the watch link (Data Layer)
+../wear/         The Wear OS app (separate module)
 ```

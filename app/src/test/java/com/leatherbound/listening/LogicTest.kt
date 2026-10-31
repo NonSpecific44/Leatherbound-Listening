@@ -1,5 +1,8 @@
 package com.leatherbound.listening
 
+import com.leatherbound.listening.data.AppSettings
+import com.leatherbound.listening.data.Backup
+import com.leatherbound.listening.data.Updates
 import com.leatherbound.listening.data.authorSortKey
 import com.leatherbound.listening.data.db.TrackEntity
 import com.leatherbound.listening.data.local.LocalScanner
@@ -169,5 +172,30 @@ class LogicTest {
     @Test fun greetingUsesFirstName() {
         assertEquals("Fergus", firstName("Fergus Eaton"))
         assertEquals("NonSpecific44", firstName("  NonSpecific44 "))
+    }
+
+    @Test fun updateCheckComparesVersionsNumerically() {
+        assertTrue(Updates.isNewer("2.2.0", "2.1.2"))
+        assertTrue(Updates.isNewer("v2.10.0", "2.9.9"))
+        assertTrue(Updates.isNewer("3.0", "2.99.99"))
+        assertFalse(Updates.isNewer("2.2.0", "2.2.0"))
+        assertFalse(Updates.isNewer("2.1.9", "2.2.0"))
+    }
+
+    @Test fun nightWindowCanRunPastMidnight() {
+        val overnight = AppSettings(nightStartHour = 21, nightEndHour = 7)
+        assertTrue(overnight.isNight(23))
+        assertTrue(overnight.isNight(0))
+        assertTrue(overnight.isNight(6))
+        assertFalse(overnight.isNight(7))
+        assertFalse(overnight.isNight(12))
+        val evening = AppSettings(nightStartHour = 18, nightEndHour = 23)
+        assertTrue(evening.isNight(20))
+        assertFalse(evening.isNight(23))
+        assertFalse(evening.isNight(2))
+    }
+
+    @Test fun backupMatchIgnoresCaseAndPunctuation() {
+        assertEquals(Backup.match("The Hobbit", "J.R.R. Tolkien"), Backup.match("the hobbit", "J. R. R. Tolkien"))
     }
 }

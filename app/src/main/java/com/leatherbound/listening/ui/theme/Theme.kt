@@ -1,6 +1,15 @@
 package com.leatherbound.listening.ui.theme
 
+import android.app.Activity
 import android.content.Context
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
+import com.leatherbound.listening.data.AppSettings
+import kotlinx.coroutines.delay
+import java.time.LocalTime
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
@@ -80,6 +89,35 @@ private val DarkColors = darkColorScheme(
     outlineVariant = Color(0xFF4E3B2D),
 )
 
+// Lamplight: for reading in bed. Near-black, warm, dim, no blue light; amber text at lower contrast.
+private val LamplightColors = darkColorScheme(
+    primary = Color(0xFFB8894A),
+    onPrimary = Color(0xFF1A0F06),
+    primaryContainer = Color(0xFF3A2414),
+    onPrimaryContainer = Color(0xFFD8B98A),
+    secondary = Color(0xFFA8703F),
+    onSecondary = Color(0xFF1A0E05),
+    secondaryContainer = Color(0xFF2E1C10),
+    onSecondaryContainer = Color(0xFFCFAE80),
+    tertiary = Color(0xFF8A9A70),
+    background = Color(0xFF0E0906),
+    onBackground = Color(0xFFC8A878),
+    surface = Color(0xFF0E0906),
+    onSurface = Color(0xFFC8A878),
+    surfaceVariant = Color(0xFF24180F),
+    onSurfaceVariant = Color(0xFF9C8060),
+    surfaceContainer = Color(0xFF140D08),
+    surfaceContainerHigh = Color(0xFF1C130C),
+    surfaceContainerHighest = Color(0xFF231810),
+    surfaceContainerLow = Color(0xFF110B07),
+    surfaceContainerLowest = Color(0xFF0A0604),
+    inverseSurface = Color(0xFFC8A878),
+    inverseOnSurface = Color(0xFF140D08),
+    outline = Color(0xFF6E5638),
+    outlineVariant = Color(0xFF33251A),
+    error = Color(0xFFC07060),
+)
+
 /** True on tablets / unfolded foldables / landscape, where layouts become two-page spreads. */
 val LocalWideLayout = compositionLocalOf { false }
 
@@ -127,14 +165,39 @@ private fun bookTypography(family: FontFamily): Typography {
     )
 }
 
+/** The theme to use now: [AppSettings.lamplightAtNight] overrides the chosen one at night. */
+@Composable
+fun currentThemeMode(settings: AppSettings): ThemeMode {
+    val hour by produceState(LocalTime.now().hour) {
+        while (true) {
+            value = LocalTime.now().hour
+            delay(30_000)
+        }
+    }
+    return if (settings.lamplightAtNight && settings.isNight(hour)) ThemeMode.LAMPLIGHT else settings.theme
+}
+
 @Composable
 fun LeatherboundTheme(mode: ThemeMode, content: @Composable () -> Unit) {
-    val dark = when (mode) {
-        ThemeMode.SYSTEM -> isSystemInDarkTheme()
-        ThemeMode.LIGHT -> false
-        ThemeMode.DARK -> true
+    val systemDark = isSystemInDarkTheme()
+    val colors = when (mode) {
+        ThemeMode.SYSTEM -> if (systemDark) DarkColors else LightColors
+        ThemeMode.LIGHT -> LightColors
+        ThemeMode.DARK -> DarkColors
+        ThemeMode.LAMPLIGHT -> LamplightColors
+    }
+    val light = colors === LightColors
+    // Status and navigation bar icons follow the theme, not the system setting.
+    val view = LocalView.current
+    if (!view.isInEditMode) SideEffect {
+        (view.context as? Activity)?.window?.let { window ->
+            WindowCompat.getInsetsController(window, view).apply {
+                isAppearanceLightStatusBars = light
+                isAppearanceLightNavigationBars = light
+            }
+        }
     }
     val context = LocalContext.current
     val typography = remember { bookTypography(bookFont(context)) }
-    MaterialTheme(colorScheme = if (dark) DarkColors else LightColors, typography = typography, content = content)
+    MaterialTheme(colorScheme = colors, typography = typography, content = content)
 }

@@ -34,6 +34,7 @@ import com.leatherbound.listening.R
 import com.leatherbound.listening.container
 import com.leatherbound.listening.data.db.BookEntity
 import com.leatherbound.listening.data.db.ChapterEntity
+import com.leatherbound.listening.wear.WearBridge
 import com.leatherbound.listening.widget.NowPlayingWidget
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -74,6 +75,9 @@ class PlaybackService : MediaLibraryService() {
     private var chapters: List<ChapterEntity> = emptyList()
     private var chaptersJob: Job? = null
     private var shownChapter = -1
+
+    private val wear by lazy { WearBridge(applicationContext) }
+    private var wearJob: Job? = null
 
     private var enhancer: LoudnessEnhancer? = null
     private var voiceBoost = false
@@ -202,12 +206,27 @@ class PlaybackService : MediaLibraryService() {
 
     private fun chapterAt(positionMs: Long): ChapterEntity? = chapters.lastOrNull { it.startMs <= positionMs }
 
+    /** Tells a paired watch what's playing (on play/pause, seeks, new books and new chapters). */
+    private fun publishToWear() {
+        val bookId = player.currentBookId
+        val position = player.bookPositionMs
+        val playing = player.isPlaying
+        val speed = player.playbackParameters.speed
+        val chapter = chapterAt(position)
+        wearJob?.cancel()
+        wearJob = appScope.launch {
+            val book = bookId?.let { dao.book(it) }
+            wear.publish(book, chapter?.title, chapter?.startMs ?: 0, chapter?.endMs ?: (book?.durationMs ?: 0), position, playing, speed)
+        }
+    }
+
     /** Puts the current chapter's name in the notification, lock screen and Android Auto. */
     private fun showChapterTitle() {
         if (chapters.size < 2) return
         val chapter = chapterAt(player.bookPositionMs) ?: return
         if (chapter.index == shownChapter) return
         shownChapter = chapter.index
+        publishToWear()
         val index = player.currentMediaItemIndex
         val item = player.currentMediaItem ?: return
         val meta = item.mediaMetadata
@@ -299,6 +318,14 @@ class PlaybackService : MediaLibraryService() {
         }
 
         override fun onAudioSessionIdChanged(audioSessionId: Int) = applyVoiceBoost()
+
+        override fun onEvents(player: Player, events: Player.Events) {
+            if (events.containsAny(
+                    Player.EVENT_IS_PLAYING_CHANGED, Player.EVENT_MEDIA_ITEM_TRANSITION,
+                    Player.EVENT_POSITION_DISCONTINUITY, Player.EVENT_PLAYBACK_PARAMETERS_CHANGED,
+                )
+            ) publishToWear()
+        }
 
         override fun onPlayerError(error: PlaybackException) {
             val offline = !container.network.online.value

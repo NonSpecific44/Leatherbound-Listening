@@ -5,6 +5,19 @@ All notable changes to Leatherbound Listening. Add new entries under **Unrelease
 
 ## [Unreleased]
 
+### Added
+- Update check: add a read-only GitHub token in Settings → Updates and the app checks for a new release when you open it, shows what's new, and installs it
+- Changes made offline reach your server later: positions, finished and unread marks that can't be sent are queued and sent when you're back online. Settings shows how many are waiting
+- Series progress on collection cards: "3 of 7 finished", with a bar for how far through the series you are
+- Audiobookshelf libraries (Settings → Add Audiobookshelf), with series, collections and two-way progress sync
+- Backup and restore (Settings → Backup): settings, places in books, finished books, Up Next, bookmarks and listening stats, in one file
+- Choose where downloads are saved: the phone's storage or an SD card
+- Lamplight: a dim, warm theme for listening in bed, which can switch on automatically at night (9 pm to 7 am by default)
+- Wear OS app: what's playing, chapter time left, play/pause and ±15 s on your watch (a separate APK on each release)
+
+### Changed
+- The status bar and navigation bar icons now follow the app's theme rather than the phone's
+
 ## [2.1.2] - 2026-11-01
 
 ### Added

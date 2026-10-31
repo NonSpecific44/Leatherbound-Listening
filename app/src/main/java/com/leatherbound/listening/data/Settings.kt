@@ -16,7 +16,7 @@ import java.util.UUID
 
 private val Context.dataStore by preferencesDataStore("settings")
 
-enum class ThemeMode { SYSTEM, LIGHT, DARK }
+enum class ThemeMode { SYSTEM, LIGHT, DARK, LAMPLIGHT }
 
 enum class LibrarySort(val label: String) {
     RECENTLY_ADDED("Recently added"),
@@ -55,10 +55,27 @@ data class AppSettings(
     val homeLayout: HomeLayout = HomeLayout.DEFAULT,
     /** Genres unticked in the Library's genre filter. */
     val hiddenGenres: Set<String> = emptySet(),
+    /** Switch to the Lamplight theme between [nightStartHour] and [nightEndHour], whatever [theme] is. */
+    val lamplightAtNight: Boolean = false,
+    val nightStartHour: Int = 21,
+    val nightEndHour: Int = 7,
+    /** Folder new downloads go in (one of the app's storage folders); empty for the phone's main storage. */
+    val downloadRoot: String = "",
+    /** GitHub token for the update check, encrypted with [TokenVault]; empty turns the check off. */
+    val updateToken: String = "",
+    /** A version you chose to skip in the update prompt. */
+    val skippedVersion: String = "",
 ) {
+    /** Whether the clock is in the night window (which may run past midnight). */
+    fun isNight(hour: Int): Boolean =
+        if (nightStartHour <= nightEndHour) hour in nightStartHour until nightEndHour
+        else hour >= nightStartHour || hour < nightEndHour
+
     /** What the home screen greets you by; empty for no name. */
     val displayName: String get() = customName.ifBlank { accountName }
 }
+
+private val NOT_BACKED_UP = setOf("device_id", "account_name", "update_token", "download_root")
 
 class SettingsStore(private val context: Context) {
     private object Keys {
@@ -83,6 +100,12 @@ class SettingsStore(private val context: Context) {
         val customName = stringPreferencesKey("custom_name")
         val homeLayout = stringPreferencesKey("home_layout")
         val hiddenGenres = stringSetPreferencesKey("hidden_genres")
+        val lamplightAtNight = booleanPreferencesKey("lamplight_at_night")
+        val nightStart = intPreferencesKey("night_start_hour")
+        val nightEnd = intPreferencesKey("night_end_hour")
+        val downloadRoot = stringPreferencesKey("download_root")
+        val updateToken = stringPreferencesKey("update_token")
+        val skippedVersion = stringPreferencesKey("skipped_version")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { p ->
@@ -107,6 +130,12 @@ class SettingsStore(private val context: Context) {
             customName = p[Keys.customName].orEmpty(),
             homeLayout = HomeLayout.parse(p[Keys.homeLayout]),
             hiddenGenres = p[Keys.hiddenGenres].orEmpty(),
+            lamplightAtNight = p[Keys.lamplightAtNight] ?: false,
+            nightStartHour = p[Keys.nightStart] ?: 21,
+            nightEndHour = p[Keys.nightEnd] ?: 7,
+            downloadRoot = p[Keys.downloadRoot].orEmpty(),
+            updateToken = p[Keys.updateToken].orEmpty(),
+            skippedVersion = p[Keys.skippedVersion].orEmpty(),
         )
     }
 
@@ -136,6 +165,32 @@ class SettingsStore(private val context: Context) {
     suspend fun setCustomName(v: String) = set(Keys.customName, v.trim())
     suspend fun setHomeLayout(v: HomeLayout) = set(Keys.homeLayout, v.encode())
     suspend fun setHiddenGenres(v: Set<String>) = set(Keys.hiddenGenres, v)
+    suspend fun setLamplightAtNight(v: Boolean) = set(Keys.lamplightAtNight, v)
+    suspend fun setNightHours(start: Int, end: Int) = context.dataStore.edit { it[Keys.nightStart] = start; it[Keys.nightEnd] = end }
+    suspend fun setDownloadRoot(v: String) = set(Keys.downloadRoot, v)
+    suspend fun setUpdateToken(plain: String) = set(Keys.updateToken, TokenVault.encrypt(plain.trim()))
+    suspend fun setSkippedVersion(v: String) = set(Keys.skippedVersion, v)
+
+    /** Every setting except per-install ones (device id, account name, secrets), for backups. */
+    suspend fun exportAll(): Map<String, Any> = context.dataStore.data.first().asMap()
+        .filterKeys { it.name !in NOT_BACKED_UP }
+        .mapKeys { it.key.name }
+
+    /** Puts back settings from [exportAll]; unknown names and types are ignored. */
+    suspend fun importAll(values: Map<String, Any>) {
+        context.dataStore.edit { p ->
+            values.forEach { (name, value) ->
+                if (name in NOT_BACKED_UP) return@forEach
+                when (value) {
+                    is Boolean -> p[booleanPreferencesKey(name)] = value
+                    is Int -> p[intPreferencesKey(name)] = value
+                    is Float -> p[floatPreferencesKey(name)] = value
+                    is String -> p[stringPreferencesKey(name)] = value
+                    is Set<*> -> p[stringSetPreferencesKey(name)] = value.filterIsInstance<String>().toSet()
+                }
+            }
+        }
+    }
 
     /** Stable per-install identifier that Plex and Jellyfin use to recognise this device. */
     suspend fun deviceId(): String {
