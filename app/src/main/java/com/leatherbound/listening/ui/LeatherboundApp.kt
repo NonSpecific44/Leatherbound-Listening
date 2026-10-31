@@ -1,0 +1,240 @@
+package com.leatherbound.listening.ui
+
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.AutoStories
+import androidx.compose.material.icons.filled.Bookmarks
+import androidx.compose.material.icons.filled.Insights
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.NavigationRailItemDefaults
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+import com.leatherbound.listening.R
+import com.leatherbound.listening.ui.components.BookCover
+import androidx.compose.runtime.CompositionLocalProvider
+import com.leatherbound.listening.ui.components.LocalAvailability
+import com.leatherbound.listening.ui.components.BookActions
+import com.leatherbound.listening.ui.components.LocalBookActions
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import com.leatherbound.listening.ui.screens.AuthorScreen
+import com.leatherbound.listening.ui.screens.BookScreen
+import com.leatherbound.listening.ui.screens.DownloadsScreen
+import com.leatherbound.listening.ui.screens.SeriesScreen
+import com.leatherbound.listening.ui.screens.HomeScreen
+import com.leatherbound.listening.ui.screens.LibraryScreen
+import com.leatherbound.listening.ui.screens.ListeningListScreen
+import com.leatherbound.listening.ui.screens.PlayerScreen
+import com.leatherbound.listening.ui.screens.SettingsScreen
+import com.leatherbound.listening.ui.screens.StatsScreen
+import com.leatherbound.listening.ui.theme.Leather
+import com.leatherbound.listening.ui.theme.LocalWideLayout
+
+private enum class Tab(val route: String, val label: String, val icon: ImageVector) {
+    Resume("home", "Resume", Icons.Filled.AutoStories),
+    Library("library", "Library", Icons.AutoMirrored.Filled.MenuBook),
+    UpNext("list", "Up Next", Icons.Filled.Bookmarks),
+    Stats("stats", "Stats", Icons.Filled.Insights),
+    Settings("settings", "Settings", Icons.Filled.Settings),
+}
+
+class Navigator(private val nav: NavHostController) {
+    fun book(id: String) = nav.navigate("book/${android.net.Uri.encode(id)}")
+    fun player() = nav.navigate("player") { launchSingleTop = true }
+    fun author(name: String) = nav.navigate("author/${android.net.Uri.encode(name)}")
+    fun series(name: String) = nav.navigate("series/${android.net.Uri.encode(name)}")
+    fun downloads() = nav.navigate("downloads")
+    fun settings() = tab("settings")
+    fun back() = nav.popBackStack()
+    fun tab(route: String) = nav.navigate(route) {
+        popUpTo(nav.graph.findStartDestination().id) { saveState = true }
+        launchSingleTop = true
+        restoreState = true
+    }
+}
+
+@Composable
+fun LeatherboundRoot(vm: AppViewModel) {
+    val nav = rememberNavController()
+    val navigator = remember(nav) { Navigator(nav) }
+    val entry by nav.currentBackStackEntryAsState()
+    val route = entry?.destination?.route
+    val wide = LocalWideLayout.current
+    val onPlayer = route == "player"
+    val availability by vm.availability.collectAsStateWithLifecycle()
+
+    val content: @Composable (Modifier) -> Unit = { modifier ->
+        NavHost(nav, startDestination = Tab.Resume.route, modifier = modifier) {
+            composable("home") { HomeScreen(vm, navigator) }
+            composable("library") { LibraryScreen(vm, navigator) }
+            composable("list") { ListeningListScreen(vm, navigator) }
+            composable("stats") { StatsScreen(vm, navigator) }
+            composable("settings") { SettingsScreen(vm, navigator) }
+            composable("book/{id}") { e -> BookScreen(vm, navigator, android.net.Uri.decode(e.arguments?.getString("id").orEmpty())) }
+            composable("player") { PlayerScreen(vm, navigator) }
+            composable("author/{name}") { e -> AuthorScreen(vm, navigator, android.net.Uri.decode(e.arguments?.getString("name").orEmpty())) }
+            composable("series/{name}") { e -> SeriesScreen(vm, navigator, android.net.Uri.decode(e.arguments?.getString("name").orEmpty())) }
+            composable("downloads") { DownloadsScreen(vm, navigator) }
+        }
+    }
+
+    val bookActions = remember(vm) {
+        BookActions(
+            play = { vm.play(it) },
+            toggleList = { vm.toggleList(it) },
+            setFinished = { id, done -> vm.setFinished(id, done) },
+            download = { vm.download(it) },
+            removeDownload = { vm.removeDownload(it) },
+        )
+    }
+    CompositionLocalProvider(LocalAvailability provides availability, LocalBookActions provides bookActions) {
+    if (wide) {
+        Row(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+            if (!onPlayer) {
+                NavigationRail(containerColor = MaterialTheme.colorScheme.surfaceContainer, header = {
+                    Icon(painterResource(R.drawable.app_logo), null, tint = androidx.compose.ui.graphics.Color.Unspecified, modifier = Modifier.padding(top = 12.dp).size(44.dp))
+                }) {
+                    Spacer(Modifier.height(12.dp))
+                    Tab.entries.forEach { tab ->
+                        NavigationRailItem(
+                            selected = route == tab.route,
+                            onClick = { navigator.tab(tab.route) },
+                            icon = { Icon(tab.icon, null) },
+                            label = { Text(tab.label) },
+                            colors = NavigationRailItemDefaults.colors(indicatorColor = MaterialTheme.colorScheme.secondaryContainer),
+                        )
+                    }
+                }
+            }
+            Scaffold(
+                modifier = Modifier.weight(1f),
+                bottomBar = { if (!onPlayer) MiniPlayer(vm, navigator) },
+            ) { padding -> content(Modifier.padding(padding)) }
+        }
+    } else {
+        Scaffold(
+            bottomBar = {
+                if (!onPlayer) Column {
+                    MiniPlayer(vm, navigator)
+                    NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
+                        Tab.entries.forEach { tab ->
+                            NavigationBarItem(
+                                selected = route == tab.route,
+                                onClick = { navigator.tab(tab.route) },
+                                icon = { Icon(tab.icon, null) },
+                                label = { Text(tab.label, maxLines = 1) },
+                                colors = NavigationBarItemDefaults.colors(indicatorColor = MaterialTheme.colorScheme.secondaryContainer),
+                            )
+                        }
+                    }
+                }
+            },
+            contentWindowInsets = if (onPlayer) WindowInsets(0) else androidx.compose.material3.ScaffoldDefaults.contentWindowInsets,
+        ) { padding -> content(Modifier.padding(padding)) }
+    }
+    }
+}
+
+/** The ribbon at the bottom of every page showing what's playing. */
+@Composable
+private fun MiniPlayer(vm: AppViewModel, navigator: Navigator) {
+    val state by vm.playerState.collectAsStateWithLifecycle()
+    val bookId = state.bookId
+    val book by remember(bookId) { bookId?.let { vm.book(it) } ?: kotlinx.coroutines.flow.flowOf(null) }.collectAsState(null)
+    AnimatedVisibility(book != null, enter = slideInVertically { it }, exit = slideOutVertically { it }) {
+        val b = book ?: return@AnimatedVisibility
+        Surface(color = Leather.Oxblood, contentColor = Leather.PaleGilt, tonalElevation = 4.dp) {
+            Column {
+                Box(Modifier.fillMaxWidth().height(2.dp).background(Leather.DarkLeather)) {
+                    val fraction = if (state.durationMs > 0) (state.positionMs.toFloat() / state.durationMs).coerceIn(0f, 1f) else 0f
+                    Box(Modifier.fillMaxWidth(fraction).height(2.dp).background(Leather.Gilt))
+                }
+                // Tap or swipe up to open the full player.
+                var lift by remember { mutableFloatStateOf(0f) }
+                val openDistance = with(LocalDensity.current) { 40.dp.toPx() }
+                Row(
+                    Modifier.fillMaxWidth()
+                        .clickable { navigator.player() }
+                        .pointerInput(Unit) {
+                            detectVerticalDragGestures(
+                                onDragStart = { lift = 0f },
+                                onDragEnd = { if (lift < -openDistance) navigator.player(); lift = 0f },
+                                onDragCancel = { lift = 0f },
+                                onVerticalDrag = { change, delta -> change.consume(); lift += delta },
+                            )
+                        }
+                        .graphicsLayer { translationY = lift.coerceIn(-openDistance, 0f) * 0.5f }
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    BookCover(b, Modifier.size(44.dp), elevation = 2.dp)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(b.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(b.author, style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic, maxLines = 1, color = Leather.Gilt)
+                    }
+                    IconButton(onClick = vm.player::seekBack) {
+                        Icon(painterResource(R.drawable.ic_replay_15), stringResource(R.string.back_15))
+                    }
+                    IconButton(onClick = vm.player::togglePlayPause) {
+                        if (state.isBuffering) CircularProgressIndicator(Modifier.size(24.dp), color = Leather.PaleGilt, strokeWidth = 2.dp)
+                        else Icon(if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow, if (state.isPlaying) "Pause" else "Play", Modifier.size(32.dp))
+                    }
+                }
+                HorizontalDivider(color = Leather.Gilt.copy(alpha = 0.3f))
+            }
+        }
+    }
+}

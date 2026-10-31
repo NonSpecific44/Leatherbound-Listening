@@ -1,0 +1,3 @@
+-keepattributes *Annotation*, InnerClasses
+-keepclassmembers class com.leatherbound.listening.data.remote.** { *** Companion; *; }
+-keep,includedescriptorclasses class com.leatherbound.listening.**$$serializer { *; }

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Leatherbound Listening</string>
+    <string name="back_15">Back 15 seconds</string>
+    <string name="forward_15">Forward 15 seconds</string>
+    <string name="widget_description">The book you are listening to, with play and skip buttons</string>
+</resources>

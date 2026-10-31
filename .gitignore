@@ -1,0 +1,11 @@
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+app/src/main/assets/fonts/*.ttf
+
+# Signing keys and their passwords never go in the repository.
+keystore.properties
+*.jks
+*.keystore
