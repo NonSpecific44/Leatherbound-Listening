@@ -5,6 +5,8 @@ All notable changes to Leatherbound Listening. Add new entries under **Unrelease
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-10-31
+
 ### Added
 - Top bar on every page with the app logo (tap for Home) and a downloads button. It animates, shows overall progress and counts queued books while downloads run; tap it for the Downloads page
 - Server status on the Home screen: a chip per library showing Online, Offline or On this phone, rechecked every minute and when your connection changes
