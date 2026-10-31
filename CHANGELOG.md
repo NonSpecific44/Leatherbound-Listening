@@ -5,6 +5,8 @@ All notable changes to Leatherbound Listening. Add new entries under **Unrelease
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-10-31
+
 ### Added
 - Drag and drop to reorder Up Next (hold the ≡ grip). This replaces the up and down arrows
 - Customise Home (the sliders button next to the greeting): drag to reorder shelves and switch them on or off. Reset restores the default order
