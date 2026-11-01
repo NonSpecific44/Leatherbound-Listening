@@ -5,6 +5,8 @@ All notable changes to Leatherbound Listening. Add new entries under **Unrelease
 
 ## [Unreleased]
 
+## [2.2.1] - 2026-11-01
+
 ### Fixed
 - Steering-wheel buttons in Android Auto now work: previous and next jump back and forward through the book, as do headphone buttons
 
