@@ -65,6 +65,9 @@ data class AppSettings(
     val updateToken: String = "",
     /** A version you chose to skip in the update prompt. */
     val skippedVersion: String = "",
+    /** Previous / next in Android Auto, on the steering wheel, headphones, notification and lock screen. */
+    val buttonBackSeconds: Int = 30,
+    val buttonForwardSeconds: Int = 30,
 ) {
     /** Whether the clock is in the night window (which may run past midnight). */
     fun isNight(hour: Int): Boolean =
@@ -106,6 +109,8 @@ class SettingsStore(private val context: Context) {
         val downloadRoot = stringPreferencesKey("download_root")
         val updateToken = stringPreferencesKey("update_token")
         val skippedVersion = stringPreferencesKey("skipped_version")
+        val buttonBack = intPreferencesKey("button_back_seconds")
+        val buttonForward = intPreferencesKey("button_forward_seconds")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { p ->
@@ -136,6 +141,8 @@ class SettingsStore(private val context: Context) {
             downloadRoot = p[Keys.downloadRoot].orEmpty(),
             updateToken = p[Keys.updateToken].orEmpty(),
             skippedVersion = p[Keys.skippedVersion].orEmpty(),
+            buttonBackSeconds = p[Keys.buttonBack] ?: 30,
+            buttonForwardSeconds = p[Keys.buttonForward] ?: 30,
         )
     }
 
@@ -170,6 +177,8 @@ class SettingsStore(private val context: Context) {
     suspend fun setDownloadRoot(v: String) = set(Keys.downloadRoot, v)
     suspend fun setUpdateToken(plain: String) = set(Keys.updateToken, TokenVault.encrypt(plain.trim()))
     suspend fun setSkippedVersion(v: String) = set(Keys.skippedVersion, v)
+    suspend fun setButtonBackSeconds(v: Int) = set(Keys.buttonBack, v)
+    suspend fun setButtonForwardSeconds(v: Int) = set(Keys.buttonForward, v)
 
     /** Every setting except per-install ones (device id, account name, secrets), for backups. */
     suspend fun exportAll(): Map<String, Any> = context.dataStore.data.first().asMap()

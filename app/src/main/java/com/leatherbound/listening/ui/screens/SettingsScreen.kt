@@ -157,6 +157,16 @@ fun SettingsScreen(vm: AppViewModel, nav: com.leatherbound.listening.ui.Navigato
             Toggle("Remove finished books from Up Next", null, settings.removeFinishedFromList, vm::setRemoveFinishedFromList)
 
             Spacer(Modifier.height(12.dp))
+            Ornament("Android Auto")
+            Text(
+                "How far back and forward the previous and next buttons jump: on the steering wheel, in Android Auto, " +
+                    "on headphones, and in the notification and lock screen. The player in the app keeps its ±15 s buttons.",
+                style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            JumpChoice("Back", settings.buttonBackSeconds, vm::setButtonBackSeconds)
+            JumpChoice("Forward", settings.buttonForwardSeconds, vm::setButtonForwardSeconds)
+
+            Spacer(Modifier.height(12.dp))
             Ornament("Downloads")
             Toggle("Download on Wi-Fi only", null, settings.downloadOnWifiOnly, vm::setWifiOnly)
             Toggle("Download the next book automatically", "When you're 80% through a book, download the next one in its series (or Up Next). Only that one book.", settings.autoDownloadNext, vm::setAutoDownloadNext)
@@ -499,5 +509,21 @@ private fun UpdateSection(vm: AppViewModel, hasToken: Boolean, state: UpdateStat
                 }
             },
         )
+    }
+}
+
+private val JUMP_CHOICES = listOf(5, 10, 15, 30, 45, 60, 90, 120)
+
+private fun jumpLabel(seconds: Int) = if (seconds >= 60 && seconds % 60 == 0) "${seconds / 60} min" else "$seconds s"
+
+/** "Back: 5 s 10 s 15 s [30 s] …" for the car and headphone buttons. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun JumpChoice(label: String, seconds: Int, onChange: (Int) -> Unit) {
+    Text("$label: ${jumpLabel(seconds)}", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = 8.dp))
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        JUMP_CHOICES.forEach { choice ->
+            FilterChip(selected = choice == seconds, onClick = { onChange(choice) }, label = { Text(jumpLabel(choice)) })
+        }
     }
 }

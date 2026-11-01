@@ -2,6 +2,7 @@ package com.leatherbound.listening.playback
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.view.KeyEvent
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -113,6 +114,8 @@ class PlaybackService : MediaLibraryService() {
         scope.launch {
             settings.settings.collectLatest { s ->
                 player.resumeRewindMs = s.resumeRewindSeconds * 1000L
+                player.buttonBackMs = s.buttonBackSeconds * 1000L
+                player.buttonForwardMs = s.buttonForwardSeconds * 1000L
                 player.smartRewind = s.smartRewind
                 exo.skipSilenceEnabled = s.skipSilence
                 if (voiceBoost != s.voiceBoost) {
@@ -546,18 +549,10 @@ class PlaybackService : MediaLibraryService() {
         override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
             val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
                 .add(CMD_BACK).add(CMD_FORWARD).add(CMD_BOOKMARK).add(CMD_SLEEP).build()
-            // The notification controller also decides what the lock screen and Android Auto show:
-            // drop previous/next so the ±15 s buttons take those slots.
-            val systemUi = session.isMediaNotificationController(controller) ||
-                session.isAutoCompanionController(controller) ||
-                session.isAutomotiveController(controller)
-            val playerCommands = if (systemUi) {
-                MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon()
-                    .removeAll(
-                        Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
-                        Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
-                    ).build()
-            } else MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS
+            // Previous/next stay available everywhere: steering wheels and headphones only send
+            // those, and AudiobookPlayer turns them into jumps back and forward (Settings → Android Auto).
+            // The notification controller's set also drives the lock screen and Android Auto.
+            val playerCommands = MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailableSessionCommands(sessionCommands)
                 .setAvailablePlayerCommands(playerCommands)
@@ -566,6 +561,22 @@ class PlaybackService : MediaLibraryService() {
         }
 
         override fun onPostConnect(session: MediaSession, controller: MediaSession.ControllerInfo) = publishSleep()
+
+        /**
+         * Hardware buttons (car, Bluetooth headphones). Handled here as well as through previous/next,
+         * so they work even when a controller hasn't been given those commands.
+         */
+        override fun onMediaButtonEvent(session: MediaSession, controllerInfo: MediaSession.ControllerInfo, intent: Intent): Boolean {
+            @Suppress("DEPRECATION")
+            val event = intent.getParcelableExtra<KeyEvent>(Intent.EXTRA_KEY_EVENT) ?: return false
+            val back = event.keyCode in setOf(KeyEvent.KEYCODE_MEDIA_PREVIOUS, KeyEvent.KEYCODE_MEDIA_REWIND, KeyEvent.KEYCODE_MEDIA_SKIP_BACKWARD)
+            val forward = event.keyCode in setOf(KeyEvent.KEYCODE_MEDIA_NEXT, KeyEvent.KEYCODE_MEDIA_FAST_FORWARD, KeyEvent.KEYCODE_MEDIA_SKIP_FORWARD)
+            if (!back && !forward) return false
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0 && player.mediaItemCount > 0) {
+                if (back) player.seekToPrevious() else player.seekToNext()
+            }
+            return true
+        }
 
         override fun onCustomCommand(
             session: MediaSession, controller: MediaSession.ControllerInfo, customCommand: SessionCommand, args: Bundle,
@@ -676,17 +687,8 @@ class PlaybackService : MediaLibraryService() {
         val CMD_SLEEP = SessionCommand(ACTION_SLEEP, Bundle.EMPTY)
 
         @Suppress("DEPRECATION")
+        // Back and forward are previous/next (see onConnect), so only the bookmark needs a button of its own.
         private val customLayout = ImmutableList.of(
-            CommandButton.Builder()
-                .setDisplayName("Back 15 seconds")
-                .setIconResId(R.drawable.ic_replay_15)
-                .setSessionCommand(CMD_BACK)
-                .build(),
-            CommandButton.Builder()
-                .setDisplayName("Forward 15 seconds")
-                .setIconResId(R.drawable.ic_forward_15)
-                .setSessionCommand(CMD_FORWARD)
-                .build(),
             CommandButton.Builder()
                 .setDisplayName("Add bookmark")
                 .setIconResId(R.drawable.ic_bookmark_add)

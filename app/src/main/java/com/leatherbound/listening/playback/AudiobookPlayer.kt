@@ -26,6 +26,12 @@ object Rewind {
 class AudiobookPlayer(player: Player) : ForwardingPlayer(player) {
 
     var skipMs: Long = 15_000
+    /**
+     * Previous / next (steering wheel, Android Auto, headphones, notification, lock screen) step
+     * back and forward through the book by these amounts instead of changing file.
+     */
+    var buttonBackMs: Long = 30_000
+    var buttonForwardMs: Long = 30_000
     var resumeRewindMs: Long = 5_000
     var smartRewind: Boolean = true
     /** Wall-clock time playback last stopped; 0 if unknown. */
@@ -39,6 +45,25 @@ class AudiobookPlayer(player: Player) : ForwardingPlayer(player) {
     override fun seekForward() = seekToBookPosition(bookPositionMs + skipMs)
     override fun getSeekBackIncrement(): Long = skipMs
     override fun getSeekForwardIncrement(): Long = skipMs
+
+    override fun seekToPrevious() = seekToBookPosition(bookPositionMs - buttonBackMs)
+    override fun seekToNext() = seekToBookPosition(bookPositionMs + buttonForwardMs)
+    override fun seekToPreviousMediaItem() = seekToPrevious()
+    override fun seekToNextMediaItem() = seekToNext()
+
+    // A one-file book has no "next file", but previous/next still work here, so always offer them.
+    private val buttonCommands = intArrayOf(
+        Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
+        Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+    )
+
+    override fun getAvailableCommands(): Player.Commands {
+        val base = super.getAvailableCommands()
+        return if (mediaItemCount > 0) base.buildUpon().addAll(*buttonCommands).build() else base
+    }
+
+    override fun isCommandAvailable(command: Int): Boolean =
+        (mediaItemCount > 0 && command in buttonCommands) || super.isCommandAvailable(command)
 
     override fun play() {
         rewindIfResuming()

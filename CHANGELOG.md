@@ -5,6 +5,15 @@ All notable changes to Leatherbound Listening. Add new entries under **Unrelease
 
 ## [Unreleased]
 
+### Fixed
+- Steering-wheel buttons in Android Auto now work: previous and next jump back and forward through the book, as do headphone buttons
+
+### Added
+- Settings → Android Auto: how far back and forward previous/next jump (30 s each by default, 5 s to 2 min)
+
+### Changed
+- The notification, lock screen and Android Auto now show previous/next (using those jumps) where the ±15 s buttons were, since all three share one set of controls. The player in the app keeps ±15 s
+
 ## [2.2.0] - 2026-11-01
 
 ### Added

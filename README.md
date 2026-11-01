@@ -10,7 +10,7 @@ A self-made audiobook player for Plex, Jellyfin and Audiobookshelf, with a bound
 | **Library** | Metadata, chapters and covers are cached in a local Room database. Sort by recently added, recently played, title, author (surname-aware), year, series, length, genre (genre shows a card per genre, with a filter for which genres appear). Filter by unread, in progress, finished, downloaded. Grid or list. |
 | **Chapters** | Plex embedded chapters, Jellyfin chapters, M4B chapters on local files (Nero `chpl` and QuickTime chapter tracks), or one chapter per file. |
 | **Playback** | Media3/ExoPlayer in a foreground service. Skip back and forward 15 s, crossing file boundaries. Resuming after a pause rewinds 5 s (adjustable 0–30 s), and opening the app rewinds the last book 5 s. Speeds from 0.75× to 2.5×. |
-| **System controls** | Notification, lock screen and Bluetooth controls, with ±15 s in place of previous/next. |
+| **System controls** | Notification, lock screen, Android Auto, steering-wheel and headphone controls. Previous/next jump back and forward through the book (30 s each by default; set them in Settings → Android Auto). |
 | **Android Auto** | Browse Continue, Listening list, Library and Downloaded as cover grids. Voice search ("play *title*") works. |
 | **Offline** | Download whole books from Plex/Jellyfin through WorkManager (Wi-Fi only by default). Downloaded files play first. |
 | **Series** | Plex and Jellyfin collections are treated as series. When a book finishes, the next one in its series plays, or the top of your Up Next list if it has no series. |

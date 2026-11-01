@@ -259,6 +259,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun setDefaultSpeed(v: Float) = viewModelScope.launch { c.settings.setPlaybackSpeed(v) }
     fun setLamplightAtNight(v: Boolean) = viewModelScope.launch { c.settings.setLamplightAtNight(v) }
     fun setNightHours(start: Int, end: Int) = viewModelScope.launch { c.settings.setNightHours((start + 24) % 24, (end + 24) % 24) }
+    fun setButtonBackSeconds(v: Int) = viewModelScope.launch { c.settings.setButtonBackSeconds(v) }
+    fun setButtonForwardSeconds(v: Int) = viewModelScope.launch { c.settings.setButtonForwardSeconds(v) }
     fun setDownloadRoot(path: String) = viewModelScope.launch { c.settings.setDownloadRoot(path) }
 
     fun storageChoices(): List<StorageChoice> = Downloads.roots(getApplication()).map {
