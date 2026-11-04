@@ -11,6 +11,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.verticalScroll
@@ -117,6 +120,9 @@ class Navigator(private val nav: NavHostController) {
     }
 }
 
+/** How long screens take to fade from one to the next (Compose's default is 700 ms). */
+private const val SCREEN_FADE_MS = 120
+
 /** "A new version is available", with the release notes, until you install, skip or dismiss it. */
 @Composable
 private fun UpdatePrompt(vm: AppViewModel) {
@@ -168,7 +174,13 @@ fun LeatherboundRoot(vm: AppViewModel) {
     val availability by vm.availability.collectAsStateWithLifecycle()
 
     val content: @Composable (Modifier) -> Unit = { modifier ->
-        NavHost(nav, startDestination = Tab.Home.route, modifier = modifier) {
+        NavHost(
+            nav, startDestination = Tab.Home.route, modifier = modifier,
+            enterTransition = { fadeIn(tween(SCREEN_FADE_MS)) },
+            exitTransition = { fadeOut(tween(SCREEN_FADE_MS)) },
+            popEnterTransition = { fadeIn(tween(SCREEN_FADE_MS)) },
+            popExitTransition = { fadeOut(tween(SCREEN_FADE_MS)) },
+        ) {
             composable("home") { HomeScreen(vm, navigator) }
             composable("library") { LibraryScreen(vm, navigator) }
             composable("list") { ListeningListScreen(vm, navigator) }

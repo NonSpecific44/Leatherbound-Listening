@@ -5,6 +5,18 @@ All notable changes to Leatherbound Listening. Add new entries under **Unrelease
 
 ## [Unreleased]
 
+### Added
+- Pause for notifications: when a notification sounds, playback stops for a few seconds, then steps back a little and carries on. Not when the phone is on silent or vibrate; switch it off in Settings → Listening. Android Auto needs notification access for this, which Settings explains
+- Playback also steps back a little after other apps' sounds have paused it
+
+### Changed
+- Screens switch much faster
+- While connected to Android Auto, the progress bar shows the current chapter rather than the file. The notification and lock screen follow along while connected
+- Collection covers are saved ahead of time during a sync, so they show at once and offline
+
+### Fixed
+- Collection covers stopped loading after Plex moved between home and internet addresses, and all covers were downloaded again after each move
+
 ## [2.2.1] - 2026-11-01
 
 ### Fixed

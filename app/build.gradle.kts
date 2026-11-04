@@ -93,6 +93,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.play.services)
     implementation(libs.play.services.wearable)
     implementation(libs.fragment)
+    implementation(libs.car.app)
     testImplementation(libs.junit)
 }
 

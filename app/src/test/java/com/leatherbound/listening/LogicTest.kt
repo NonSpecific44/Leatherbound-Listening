@@ -1,6 +1,12 @@
 package com.leatherbound.listening
 
+import android.app.Notification
+import android.app.NotificationManager
 import com.leatherbound.listening.data.AppSettings
+import com.leatherbound.listening.data.ArtworkProvider
+import com.leatherbound.listening.data.db.ChapterEntity
+import com.leatherbound.listening.playback.NotificationAlerts
+import com.leatherbound.listening.playback.chapterSpan
 import com.leatherbound.listening.data.Backup
 import com.leatherbound.listening.data.Updates
 import com.leatherbound.listening.data.authorSortKey
@@ -197,5 +203,31 @@ class LogicTest {
 
     @Test fun backupMatchIgnoresCaseAndPunctuation() {
         assertEquals(Backup.match("The Hobbit", "J.R.R. Tolkien"), Backup.match("the hobbit", "J. R. R. Tolkien"))
+    }
+
+    @Test fun onlyNotificationsThatMakeASoundAlert() {
+        val loud = NotificationManager.IMPORTANCE_DEFAULT
+        assertTrue(NotificationAlerts.alerts(loud, channelHasSound = true, matchesFilter = true, flags = 0))
+        assertFalse(NotificationAlerts.alerts(NotificationManager.IMPORTANCE_LOW, true, true, 0))
+        assertFalse(NotificationAlerts.alerts(loud, channelHasSound = false, matchesFilter = true, flags = 0))
+        assertFalse(NotificationAlerts.alerts(loud, channelHasSound = true, matchesFilter = false, flags = 0))
+        assertFalse(NotificationAlerts.alerts(loud, true, true, Notification.FLAG_ONGOING_EVENT))
+        assertFalse(NotificationAlerts.alerts(loud, true, true, Notification.FLAG_ONLY_ALERT_ONCE))
+    }
+
+    @Test fun chapterSpanFindsTheChapterAtAPosition() {
+        val chapters = listOf(ChapterEntity("b", 0, "One", 0, 1_000), ChapterEntity("b", 1, "Two", 1_000, 3_000))
+        assertEquals(0L to 1_000L, chapterSpan(chapters, 999))
+        assertEquals(1_000L to 3_000L, chapterSpan(chapters, 1_000))
+        assertEquals(1_000L to 3_000L, chapterSpan(chapters, 9_000))
+        assertNull(chapterSpan(emptyList(), 500))
+    }
+
+    @Test fun coverCacheKeyIgnoresTheServerAddressButNotTheLibrary() {
+        val home = ArtworkProvider.cacheKey(1, "http://192.168.1.10:32400/library/collections/7/thumb/99?X-Plex-Token={token}")
+        val away = ArtworkProvider.cacheKey(1, "https://1-2-3-4.abc.plex.direct:32400/library/collections/7/thumb/99?X-Plex-Token={token}")
+        val otherServer = ArtworkProvider.cacheKey(2, "http://192.168.1.10:32400/library/collections/7/thumb/99?X-Plex-Token={token}")
+        assertEquals(home, away)
+        assertFalse(home == otherServer)
     }
 }

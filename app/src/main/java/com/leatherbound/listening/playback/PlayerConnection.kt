@@ -94,7 +94,9 @@ class PlayerConnection(
             bookId = c.currentBookId,
             isPlaying = c.isPlaying,
             isBuffering = c.playbackState == Player.STATE_BUFFERING,
-            positionMs = c.bookPositionMs,
+            // In the car the session reports chapter time, and says where that chapter starts.
+            positionMs = sleepExtras.getLong(PlaybackService.EXTRA_REPORTED_FROM_MS, -1L).takeIf { it >= 0 }
+                ?.let { it + c.currentPosition.coerceAtLeast(0) } ?: c.bookPositionMs,
             durationMs = c.bookDurationMs,
             speed = c.playbackParameters.speed,
             sleepLeftMs = sleepLeft,

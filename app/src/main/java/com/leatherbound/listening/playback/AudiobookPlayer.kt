@@ -2,6 +2,7 @@ package com.leatherbound.listening.playback
 
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.Player
+import com.leatherbound.listening.data.db.ChapterEntity
 
 /** How far to step back when you press play again. */
 object Rewind {
@@ -17,6 +18,12 @@ object Rewind {
         pausedForMs < 24 * 60 * 60_000 -> maxOf(baseMs, 15_000)
         else -> maxOf(baseMs, 30_000)
     }
+}
+
+/** The chapter holding [positionMs] as (start, end), or null if the book has no chapter marks. */
+fun chapterSpan(chapters: List<ChapterEntity>, positionMs: Long): Pair<Long, Long>? {
+    val chapter = chapters.lastOrNull { it.startMs <= positionMs } ?: chapters.firstOrNull() ?: return null
+    return chapter.startMs to chapter.endMs.coerceAtLeast(chapter.startMs + 1)
 }
 
 /**
@@ -38,6 +45,40 @@ class AudiobookPlayer(player: Player) : ForwardingPlayer(player) {
     var pausedAtMs: Long = 0
     /** Set when a book was just loaded already rewound (on app launch), so the first play doesn't rewind twice. */
     var skipNextRewind = false
+
+    /**
+     * In the car, the session reports position and length within the chapter, so Android Auto's
+     * progress bar covers the chapter. Android has one set of these per session, so the notification
+     * and lock screen follow along, and the app is told the chapter's start to work back from.
+     */
+    var chapterView = false
+    var chapters: List<ChapterEntity> = emptyList()
+
+    /** The file's place in the book plus the player's own position, whatever [chapterView] reports. */
+    val bookPositionMs: Long
+        get() = (currentMediaItem?.mediaMetadata?.extras?.getLong(MediaIds.EXTRA_OFFSET) ?: 0L) + wrappedPlayer.currentPosition.coerceAtLeast(0)
+
+    private fun span(): Pair<Long, Long>? = if (chapterView) chapterSpan(chapters, bookPositionMs) else null
+
+    /** Where the reported position starts counting from, while [chapterView] is on. */
+    val reportedFromMs: Long? get() = span()?.first
+
+    private fun withinChapter(filePositionMs: Long, span: Pair<Long, Long>): Long {
+        val offset = currentMediaItem?.mediaMetadata?.extras?.getLong(MediaIds.EXTRA_OFFSET) ?: 0L
+        return (offset + filePositionMs - span.first).coerceIn(0, span.second - span.first)
+    }
+
+    override fun getCurrentPosition(): Long = span()?.let { withinChapter(wrappedPlayer.currentPosition, it) } ?: super.getCurrentPosition()
+    override fun getContentPosition(): Long = span()?.let { withinChapter(wrappedPlayer.contentPosition, it) } ?: super.getContentPosition()
+    override fun getBufferedPosition(): Long = span()?.let { withinChapter(wrappedPlayer.bufferedPosition, it) } ?: super.getBufferedPosition()
+    override fun getContentBufferedPosition(): Long = span()?.let { withinChapter(wrappedPlayer.contentBufferedPosition, it) } ?: super.getContentBufferedPosition()
+    override fun getDuration(): Long = span()?.let { it.second - it.first } ?: super.getDuration()
+    override fun getContentDuration(): Long = span()?.let { it.second - it.first } ?: super.getContentDuration()
+
+    /** Dragging Android Auto's progress bar. Everything else in the app seeks by file and position. */
+    override fun seekTo(positionMs: Long) {
+        span()?.let { seekToBookPosition(it.first + positionMs) } ?: super.seekTo(positionMs)
+    }
 
     fun rewindFor(pausedForMs: Long) = Rewind.forPause(resumeRewindMs, pausedForMs, smartRewind)
 

@@ -1,6 +1,10 @@
 package com.leatherbound.listening.ui.screens
 
+import android.content.Intent
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.core.app.NotificationManagerCompat
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -152,12 +156,22 @@ fun SettingsScreen(vm: AppViewModel, nav: com.leatherbound.listening.ui.Navigato
             Slider(value = settings.playbackSpeed, onValueChange = { vm.setDefaultSpeed((it * 20).toInt() / 20f) }, valueRange = 0.75f..2.5f, steps = 34)
             Toggle("Skip silence", "Trims pauses between sentences", settings.skipSilence, vm::setSkipSilence)
             Toggle("Voice boost", "Makes quiet narrators louder, for the car or the street", settings.voiceBoost, vm::setVoiceBoost)
+            Toggle(
+                "Pause for notifications",
+                "Stops for a few seconds when a notification sounds, then steps back and carries on. Not when the phone is on silent or vibrate.",
+                settings.pauseForNotifications, vm::setPauseForNotifications,
+            )
+            if (settings.pauseForNotifications) NotificationAccessRow()
             Toggle("Mark books finished automatically", "When playback reaches the end", settings.autoMarkFinished, vm::setAutoMarkFinished)
             Toggle("Play the next book in the series", "Uses Plex/Jellyfin collections, then your Up Next list", settings.autoQueueSeries, vm::setAutoQueueSeries)
             Toggle("Remove finished books from Up Next", null, settings.removeFinishedFromList, vm::setRemoveFinishedFromList)
 
             Spacer(Modifier.height(12.dp))
             Ornament("Android Auto")
+            Text(
+                "The progress bar shows the current chapter while connected to the car.",
+                style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Text(
                 "How far back and forward the previous and next buttons jump: on the steering wheel, in Android Auto, " +
                     "on headphones, and in the notification and lock screen. The player in the app keeps its ±15 s buttons.",
@@ -525,5 +539,25 @@ private fun JumpChoice(label: String, seconds: Int, onChange: (Int) -> Unit) {
         JUMP_CHOICES.forEach { choice ->
             FilterChip(selected = choice == seconds, onClick = { onChange(choice) }, label = { Text(jumpLabel(choice)) })
         }
+    }
+}
+
+/** Android Auto often plays notification sounds where the phone can't hear them; notification access catches those. */
+@Composable
+private fun NotificationAccessRow() {
+    val context = LocalContext.current
+    var granted by remember { mutableStateOf(false) }
+    LifecycleResumeEffect(Unit) {
+        granted = context.packageName in NotificationManagerCompat.getEnabledListenerPackages(context)
+        onPauseOrDispose {}
+    }
+    Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            if (granted) "Notification access is on, so this also works in Android Auto. The app only notices that a notification arrived; it never reads them."
+            else "For Android Auto, allow notification access. The app only notices that a notification arrived; it never reads them. " +
+                "If Android says the setting is restricted, go to App info, open the ⋮ menu and choose Allow restricted settings.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f),
+        )
+        TextButton(onClick = { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }) { Text(if (granted) "Manage" else "Allow") }
     }
 }

@@ -40,7 +40,10 @@ class ArtworkProvider : ContentProvider() {
                 book.sourceId to (book.coverUrl ?: throw FileNotFoundException("no cover"))
             }
             val source = repo.dao.source(sourceId)
-            val cached = File(File(ctx.filesDir, "artwork").apply { mkdirs() }, LocalScanner.sha1(url) + ".img")
+            val folder = File(ctx.filesDir, "artwork").apply { mkdirs() }
+            val cached = File(folder, cacheKey(sourceId, url) + ".img")
+            // Covers saved by older versions were named after the whole address.
+            if (!cached.exists()) File(folder, LocalScanner.sha1(url) + ".img").takeIf { it.exists() }?.renameTo(cached)
             if (!cached.exists() || cached.length() == 0L) {
                 val tmp = File(cached.path + ".tmp")
                 val parsed = Uri.parse(url)
@@ -69,13 +72,20 @@ class ArtworkProvider : ContentProvider() {
     companion object {
         const val AUTHORITY = "com.leatherbound.listening.artwork"
 
+        /**
+         * Names a cover by its library and its path on the server, not the server's address, so moving
+         * between home and away (see LibraryRepository.refreshConnections) doesn't fetch it again.
+         */
+        fun cacheKey(sourceId: Long, url: String): String =
+            LocalScanner.sha1("$sourceId|" + url.replace(Regex("^https?://[^/]+"), ""))
+
         /** The version segment changes when the cover does, so caches refresh. */
         fun uri(book: BookEntity): Uri? = book.coverUrl?.let {
-            Uri.parse("content://$AUTHORITY/${Uri.encode(book.id)}/${LocalScanner.sha1(it).take(12)}")
+            Uri.parse("content://$AUTHORITY/${Uri.encode(book.id)}/${cacheKey(book.sourceId, it).take(12)}")
         }
 
         fun uri(collection: CollectionEntity): Uri? = collection.coverUrl?.let {
-            Uri.parse("content://$AUTHORITY/c/${Uri.encode(collection.id)}/${LocalScanner.sha1(it).take(12)}")
+            Uri.parse("content://$AUTHORITY/c/${Uri.encode(collection.id)}/${cacheKey(collection.sourceId, it).take(12)}")
         }
     }
 }

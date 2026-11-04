@@ -11,7 +11,7 @@ A self-made audiobook player for Plex, Jellyfin and Audiobookshelf, with a bound
 | **Chapters** | Plex embedded chapters, Jellyfin chapters, M4B chapters on local files (Nero `chpl` and QuickTime chapter tracks), or one chapter per file. |
 | **Playback** | Media3/ExoPlayer in a foreground service. Skip back and forward 15 s, crossing file boundaries. Resuming after a pause rewinds 5 s (adjustable 0–30 s), and opening the app rewinds the last book 5 s. Speeds from 0.75× to 2.5×. |
 | **System controls** | Notification, lock screen, Android Auto, steering-wheel and headphone controls. Previous/next jump back and forward through the book (30 s each by default; set them in Settings → Android Auto). |
-| **Android Auto** | Browse Continue, Listening list, Library and Downloaded as cover grids. Voice search ("play *title*") works. |
+| **Android Auto** | Browse Jump back in, Listening list, Library and Downloaded as cover grids. Voice search ("play *title*") works. The progress bar shows the current chapter. |
 | **Offline** | Download whole books from Plex/Jellyfin through WorkManager (Wi-Fi only by default). Downloaded files play first. |
 | **Series** | Plex and Jellyfin collections are treated as series. When a book finishes, the next one in its series plays, or the top of your Up Next list if it has no series. |
 | **Up Next** | Listening list you can reorder. |
@@ -32,6 +32,7 @@ A self-made audiobook player for Plex, Jellyfin and Audiobookshelf, with a bound
 | **Collections** | Plex and Jellyfin collections (and series folders on the phone) on Home, in the Library and in search. |
 | **At a glance** | Top bar with the logo and an animated downloads button; server online status on Home. |
 | **Offline changes** | Positions, finished and unread marks that can't reach the server are queued and sent when you're back online (or on the next sync). Settings shows how many are waiting. |
+| **Notifications** | Playback pauses for a few seconds when a notification sounds, then steps back and carries on (not on silent or vibrate). It listens for the sound; in Android Auto that often isn't audible to the phone, so notification access is an optional extra. |
 | **Series progress** | Collection cards show "3 of 7 finished" and a bar for how far through the series you are. |
 | **Backup** | Settings → Backup saves settings, places in books, finished books, Up Next, bookmarks and stats to a JSON file, and restores it (books are matched by library and server id, or title and author). Sign-ins aren't included. |
 | **Download location** | Choose where new downloads go: the phone's storage or an SD card. |

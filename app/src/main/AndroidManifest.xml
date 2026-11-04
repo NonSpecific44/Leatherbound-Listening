@@ -12,6 +12,11 @@
     <!-- Installing updates downloaded from GitHub (Android still asks you to confirm each one). -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- Lets the app tell when the phone is connected to Android Auto. -->
+    <queries>
+        <package android:name="com.google.android.projection.gearhead" />
+    </queries>
+
     <application
         android:name=".LeatherboundApp"
         android:allowBackup="true"
@@ -54,6 +59,17 @@
             android:name=".data.ArtworkProvider"
             android:authorities="com.leatherbound.listening.artwork"
             android:exported="true" />
+
+        <!-- Optional: pausing for notifications in Android Auto. Off until you allow notification access. -->
+        <service
+            android:name=".playback.AlertListener"
+            android:exported="true"
+            android:label="Leatherbound: pause for notifications"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
 
         <!-- Commands from the Wear OS app. -->
         <service

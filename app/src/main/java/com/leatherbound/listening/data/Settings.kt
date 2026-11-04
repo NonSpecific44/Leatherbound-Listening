@@ -68,6 +68,8 @@ data class AppSettings(
     /** Previous / next in Android Auto, on the steering wheel, headphones, notification and lock screen. */
     val buttonBackSeconds: Int = 30,
     val buttonForwardSeconds: Int = 30,
+    /** Pause for a few seconds when a notification sounds (not when the phone is on silent or vibrate). */
+    val pauseForNotifications: Boolean = true,
 ) {
     /** Whether the clock is in the night window (which may run past midnight). */
     fun isNight(hour: Int): Boolean =
@@ -111,6 +113,7 @@ class SettingsStore(private val context: Context) {
         val skippedVersion = stringPreferencesKey("skipped_version")
         val buttonBack = intPreferencesKey("button_back_seconds")
         val buttonForward = intPreferencesKey("button_forward_seconds")
+        val pauseForNotifications = booleanPreferencesKey("pause_for_notifications")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { p ->
@@ -143,6 +146,7 @@ class SettingsStore(private val context: Context) {
             skippedVersion = p[Keys.skippedVersion].orEmpty(),
             buttonBackSeconds = p[Keys.buttonBack] ?: 30,
             buttonForwardSeconds = p[Keys.buttonForward] ?: 30,
+            pauseForNotifications = p[Keys.pauseForNotifications] ?: true,
         )
     }
 
@@ -179,6 +183,7 @@ class SettingsStore(private val context: Context) {
     suspend fun setSkippedVersion(v: String) = set(Keys.skippedVersion, v)
     suspend fun setButtonBackSeconds(v: Int) = set(Keys.buttonBack, v)
     suspend fun setButtonForwardSeconds(v: Int) = set(Keys.buttonForward, v)
+    suspend fun setPauseForNotifications(v: Boolean) = set(Keys.pauseForNotifications, v)
 
     /** Every setting except per-install ones (device id, account name, secrets), for backups. */
     suspend fun exportAll(): Map<String, Any> = context.dataStore.data.first().asMap()

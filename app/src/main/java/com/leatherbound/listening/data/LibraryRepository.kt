@@ -23,7 +23,11 @@ import com.leatherbound.listening.data.remote.RemoteCatalog
 import com.leatherbound.listening.data.remote.RemoteCollection
 import com.leatherbound.listening.data.remote.fallbackChapters
 import com.leatherbound.listening.playback.locate
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -155,6 +159,15 @@ class LibraryRepository(
         } finally {
             _syncing.value = false
         }
+        cacheCollectionCovers()
+    }
+
+    /** Saves collection covers ahead of time, so they show at once and offline. Already-saved ones cost nothing. */
+    private suspend fun cacheCollectionCovers() = withContext(Dispatchers.IO) {
+        val limit = Semaphore(4)
+        dao.collectionsWithCovers().mapNotNull { ArtworkProvider.uri(it) }.map { uri ->
+            async { limit.withPermit { runCatching { context.contentResolver.openFileDescriptor(uri, "r")?.close() } } }
+        }.awaitAll()
     }
 
     /** Looks up your name for the home-screen greeting: Plex first, then Jellyfin. */

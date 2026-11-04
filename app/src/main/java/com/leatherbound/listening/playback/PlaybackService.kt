@@ -2,6 +2,12 @@ package com.leatherbound.listening.playback
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.media.AudioManager
+import android.media.AudioPlaybackConfiguration
+import android.os.Handler
+import android.os.Looper
+import androidx.car.app.connection.CarConnection
+import androidx.lifecycle.Observer
 import android.view.KeyEvent
 import android.hardware.Sensor
 import android.hardware.SensorEvent
@@ -117,6 +123,7 @@ class PlaybackService : MediaLibraryService() {
                 player.buttonBackMs = s.buttonBackSeconds * 1000L
                 player.buttonForwardMs = s.buttonForwardSeconds * 1000L
                 player.smartRewind = s.smartRewind
+                pauseForNotifications = s.pauseForNotifications
                 exo.skipSilenceEnabled = s.skipSilence
                 if (voiceBoost != s.voiceBoost) {
                     voiceBoost = s.voiceBoost
@@ -126,6 +133,9 @@ class PlaybackService : MediaLibraryService() {
             }
         }
         scope.launch { tick() }
+        scope.launch { NotificationAlerts.posted.collect { pauseForNotification() } }
+        audioManager.registerAudioPlaybackCallback(soundWatcher, Handler(Looper.getMainLooper()))
+        carConnection.observeForever(carObserver)
         // When a Plex server moves to another address (you left home or came back), switch the
         // book that's streaming over to it without losing your place.
         scope.launch {
@@ -167,7 +177,13 @@ class PlaybackService : MediaLibraryService() {
         stopSelf()
     }
 
+    /** Keeps the service in the foreground through a pause for a notification, so it's allowed to resume. */
+    override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) =
+        super.onUpdateNotification(session, startInForegroundRequired || holdingForNotification)
+
     override fun onDestroy() {
+        audioManager.unregisterAudioPlaybackCallback(soundWatcher)
+        carConnection.removeObserver(carObserver)
         // Last chance to remember where we were.
         runBlocking { saveProgress(forcePush = true) }
         stopShakeDetection()
@@ -177,6 +193,62 @@ class PlaybackService : MediaLibraryService() {
         session.release()
         player.release()
         super.onDestroy()
+    }
+
+    // ---------------- Pausing for notifications ----------------
+
+    private val audioManager by lazy { getSystemService(AudioManager::class.java) }
+    private var pauseForNotifications = true
+    private var holdingForNotification = false
+    private var holdJob: Job? = null
+    private var holdUntil = 0L
+    private var notificationSoundPlaying = false
+
+    /**
+     * Apps that ask for audio focus already pause ExoPlayer, but a notification sound doesn't always
+     * ask (in Android Auto especially), so this watches for the sound itself. No permission needed.
+     */
+    private val soundWatcher = object : AudioManager.AudioPlaybackCallback() {
+        override fun onPlaybackConfigChanged(configs: List<AudioPlaybackConfiguration>) {
+            val playing = configs.any { it.audioAttributes.usage in NOTIFICATION_USAGES }
+            if (playing && !notificationSoundPlaying) pauseForNotification()
+            notificationSoundPlaying = playing
+        }
+    }
+
+    private fun phoneIsSilent() = audioManager.ringerMode != AudioManager.RINGER_MODE_NORMAL ||
+        audioManager.getStreamVolume(AudioManager.STREAM_NOTIFICATION) == 0
+
+    /** Pauses until the notification has had its moment, then carries on (play() steps back a little). */
+    private fun pauseForNotification() {
+        if (!pauseForNotifications || phoneIsSilent()) return
+        val now = SystemClock.elapsedRealtime()
+        if (holdingForNotification) {
+            holdUntil = now + NOTIFICATION_PAUSE_MS
+            return
+        }
+        if (!player.isPlaying) return
+        holdingForNotification = true
+        holdUntil = now + NOTIFICATION_PAUSE_MS
+        player.pause()
+        holdJob = scope.launch {
+            while ((SystemClock.elapsedRealtime() < holdUntil || notificationSoundPlaying) &&
+                SystemClock.elapsedRealtime() - now < NOTIFICATION_PAUSE_MAX_MS
+            ) delay(250)
+            holdingForNotification = false
+            player.play()
+        }
+    }
+
+    // ---------------- Android Auto ----------------
+
+    private val carConnection by lazy { CarConnection(this).type }
+    private val carObserver = Observer<Int> { type ->
+        player.chapterView = type != CarConnection.CONNECTION_TYPE_NOT_CONNECTED
+        // Sends the new position and length out to Android Auto and the app.
+        shownChapter = -1
+        showChapterTitle()
+        publishSleep()
     }
 
     // ---------------- Progress, stats and the notification's chapter title ----------------
@@ -230,6 +302,7 @@ class PlaybackService : MediaLibraryService() {
         if (chapter.index == shownChapter) return
         shownChapter = chapter.index
         publishToWear()
+        if (player.chapterView) publishSleep()
         val index = player.currentMediaItemIndex
         val item = player.currentMediaItem ?: return
         val meta = item.mediaMetadata
@@ -245,11 +318,13 @@ class PlaybackService : MediaLibraryService() {
     private fun onBookChanged(bookId: String?) {
         shownChapter = -1
         chapters = emptyList()
+        player.chapters = emptyList()
         chaptersJob?.cancel()
         if (bookId == null) return
         chaptersJob = scope.launch {
             dao.observeChapters(bookId).collectLatest {
                 chapters = it
+                player.chapters = it
                 shownChapter = -1
                 showChapterTitle()
             }
@@ -298,6 +373,25 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private inner class PlayerListener : Player.Listener {
+        // You pressed play yourself during a pause for a notification.
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            if (playWhenReady && holdingForNotification) {
+                holdingForNotification = false
+                holdJob?.cancel()
+            }
+        }
+
+        private var suppression = Player.PLAYBACK_SUPPRESSION_REASON_NONE
+
+        // Another app's sound paused us (audio focus) and has finished: step back to pick up the thread.
+        override fun onPlaybackSuppressionReasonChanged(reason: Int) {
+            val focusReturned = suppression == Player.PLAYBACK_SUPPRESSION_REASON_TRANSIENT_AUDIO_FOCUS_LOSS &&
+                reason == Player.PLAYBACK_SUPPRESSION_REASON_NONE
+            suppression = reason
+            val rewind = player.rewindFor(BRIEF_PAUSE_MS)
+            if (focusReturned && rewind > 0) player.seekToBookPosition(player.bookPositionMs - rewind)
+        }
+
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             if (!isPlaying) scope.launch { saveProgress(forcePush = true) }
             refreshWidget(isPlaying)
@@ -328,6 +422,8 @@ class PlaybackService : MediaLibraryService() {
                     Player.EVENT_POSITION_DISCONTINUITY, Player.EVENT_PLAYBACK_PARAMETERS_CHANGED,
                 )
             ) publishToWear()
+            // Moved to another chapter while paused or by seeking.
+            if (events.contains(Player.EVENT_POSITION_DISCONTINUITY)) showChapterTitle()
         }
 
         override fun onPlayerError(error: PlaybackException) {
@@ -452,6 +548,7 @@ class PlaybackService : MediaLibraryService() {
             bundleOf(
                 EXTRA_SLEEP_LEFT_MS to (sleepLeftMs() ?: -1L),
                 EXTRA_SLEEP_CHAPTER_END to sleepAtChapterEnd,
+                EXTRA_REPORTED_FROM_MS to (player.reportedFromMs ?: -1L),
             )
         )
     }
@@ -668,6 +765,7 @@ class PlaybackService : MediaLibraryService() {
         const val SLEEP_END_OF_CHAPTER = -1
         const val EXTRA_SLEEP_LEFT_MS = "sleepLeftMs"
         const val EXTRA_SLEEP_CHAPTER_END = "sleepChapterEnd"
+        const val EXTRA_REPORTED_FROM_MS = "reportedFromMs"
         const val ARG_MINUTES = "minutes"
         const val ARG_NOTE = "note"
         const val ACTION_SLEEP = "leatherbound.SLEEP"
@@ -675,6 +773,14 @@ class PlaybackService : MediaLibraryService() {
         private const val ACTION_BACK = "leatherbound.BACK_15"
         private const val ACTION_FORWARD = "leatherbound.FORWARD_15"
         private const val FADE_MS = 10_000L
+        /** A notification holds playback this long, or until its sound ends if that's later, up to the maximum. */
+        private const val NOTIFICATION_PAUSE_MS = 4_000L
+        private const val NOTIFICATION_PAUSE_MAX_MS = 30_000L
+        private const val BRIEF_PAUSE_MS = 1_000L
+        private val NOTIFICATION_USAGES = setOf(
+            android.media.AudioAttributes.USAGE_NOTIFICATION, android.media.AudioAttributes.USAGE_NOTIFICATION_EVENT,
+            android.media.AudioAttributes.USAGE_ASSISTANT,
+        )
         private const val SHAKE_G = 2.4f
         private const val SHAKE_EXTEND_MIN = 10
         private const val SHAKE_GRACE_MS = 60_000L

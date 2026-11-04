@@ -26,12 +26,15 @@ interface LibraryDao {
     suspend fun rebaseTracks(sourceId: Long, oldBase: String, newBase: String)
     @Query("UPDATE books SET coverUrl = REPLACE(coverUrl, :oldBase, :newBase) WHERE sourceId = :sourceId")
     suspend fun rebaseCovers(sourceId: Long, oldBase: String, newBase: String)
+    @Query("UPDATE collections SET coverUrl = REPLACE(coverUrl, :oldBase, :newBase) WHERE sourceId = :sourceId")
+    suspend fun rebaseCollectionCovers(sourceId: Long, oldBase: String, newBase: String)
 
     @Transaction
     suspend fun moveSource(sourceId: Long, oldBase: String, newBase: String, connections: String) {
         updateConnection(sourceId, newBase, connections)
         rebaseTracks(sourceId, oldBase, newBase)
         rebaseCovers(sourceId, oldBase, newBase)
+        rebaseCollectionCovers(sourceId, oldBase, newBase)
     }
 
     // Books
@@ -76,6 +79,7 @@ interface LibraryDao {
     // Collections
     @Query("SELECT * FROM collections ORDER BY name COLLATE NOCASE") fun observeCollections(): Flow<List<CollectionEntity>>
     @Query("SELECT * FROM collections WHERE id = :id") suspend fun collection(id: String): CollectionEntity?
+    @Query("SELECT * FROM collections WHERE coverUrl IS NOT NULL") suspend fun collectionsWithCovers(): List<CollectionEntity>
     @Query("SELECT * FROM collection_books ORDER BY position") fun observeCollectionBooks(): Flow<List<CollectionBookEntity>>
     @Query("DELETE FROM collections WHERE sourceId = :sourceId") suspend fun deleteCollectionsForSource(sourceId: Long)
     @Query("DELETE FROM collection_books WHERE collectionId IN (SELECT id FROM collections WHERE sourceId = :sourceId)")
