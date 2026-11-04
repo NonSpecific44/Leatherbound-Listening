@@ -5,6 +5,8 @@ All notable changes to Leatherbound Listening. Add new entries under **Unrelease
 
 ## [Unreleased]
 
+## [2.2.2] - 2026-11-05
+
 ### Added
 - Pause for notifications: when a notification sounds, playback stops for a few seconds, then steps back a little and carries on. Not when the phone is on silent or vibrate; switch it off in Settings → Listening. Android Auto needs notification access for this, which Settings explains
 - Playback also steps back a little after other apps' sounds have paused it
